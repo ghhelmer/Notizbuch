@@ -97,7 +97,7 @@ function build(){
 function pickEv(node){const [nbId,evId]=node.dataset.ev.split("|");const nb=Store.notebooks.find(n=>n.id===nbId);const ev=nb&&(nb.events||[]).find(x=>x.id===evId);if(ev){sel=ev.date;edit(nb,ev);}}
 function resetForm(){
   editing=null;const f=el.querySelector("#calForm");const keepCat=el.querySelector("#calCat").value;f.reset();
-  el.querySelector("#calCat").value=keepCat||CATS[0].name;
+  const me=Store.me&&Store.me();el.querySelector("#calCat").value=keepCat||(CATS.some(c=>c.name===me)?me:CATS[0].name);
   el.querySelector("#calDate").value=sel;
   el.querySelector("#calSave").textContent="Termin speichern";
   const del=el.querySelector("[data-del]");del.hidden=true;delete del.dataset.armed;del.textContent="Löschen";
@@ -122,7 +122,7 @@ function save(){
   else{
     nb=Store.notebooks.find(n=>n.id===el.querySelector("#calNb").value)||Store.notebooks[0];
     nb.events=nb.events||[];
-    nb.events.push(Object.assign({id:Store.uid(),by:(window.OD&&OD.userName)||""},data));
+    nb.events.push(Object.assign({id:Store.uid(),by:(Store.me&&Store.me())||(window.OD&&OD.userName)||""},data));
   }
   Store.touchIndex(nb);
   if(hidden.has(data.cat)){hidden.delete(data.cat);try{localStorage.setItem("kalender-ausgeblendet",JSON.stringify([...hidden]));}catch(e){}}

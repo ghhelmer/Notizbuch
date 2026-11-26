@@ -271,12 +271,18 @@ const Sync={
     await this.pull(nb);
     return true;
   },
-  async invite(nb,email){
+  async invite(nb,email,role){
     return OD.json("POST",`/drives/${nb.drive.driveId}/items/${nb.drive.itemId}/invite`,{json:{
-      recipients:[{email}],requireSignIn:true,sendInvitation:true,roles:["write"],
-      message:"Ich habe ein Notizbuch mit dir geteilt. Öffne es in der Notizbuch-App unter „Freigegebenes Notizbuch öffnen“: "+location.origin+location.pathname
+      recipients:[{email}],requireSignIn:true,sendInvitation:true,roles:[role==="read"?"read":"write"],
+      message:"Ich habe ein Notizbuch mit dir geteilt. Öffne es in der App unter „Freigegebenes Notizbuch öffnen“: "+location.origin+location.pathname
     }});
   },
+  async permissions(nb){
+    const j=await OD.json("GET",`/drives/${nb.drive.driveId}/items/${nb.drive.itemId}/permissions`);
+    return j.value||[];
+  },
+  async removePermission(nb,id){return OD.json("DELETE",`/drives/${nb.drive.driveId}/items/${nb.drive.itemId}/permissions/${id}`);},
+  async setRole(nb,id,role){return OD.json("PATCH",`/drives/${nb.drive.driveId}/items/${nb.drive.itemId}/permissions/${id}`,{json:{roles:[role]}});},
   async shareLink(nb){
     const j=await OD.json("POST",`/drives/${nb.drive.driveId}/items/${nb.drive.itemId}/createLink`,{json:{type:"edit"}});
     return j.link.webUrl;

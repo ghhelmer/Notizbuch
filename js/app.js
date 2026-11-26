@@ -27,12 +27,12 @@ function flushAll(){
 window.addEventListener("pagehide",flushAll);
 document.addEventListener("visibilitychange",()=>{if(document.hidden)flushAll();});
 
-Store.indexOf=nb=>({format:1,id:nb.id,name:nb.name,nameMod:nb.nameMod||0,sections:nb.sections,pages:nb.pages,events:nb.events||[]});
+Store.indexOf=nb=>({format:1,id:nb.id,name:nb.name,nameMod:nb.nameMod||0,sections:nb.sections,pages:nb.pages,events:nb.events||[],members:nb.members||[]});
 Store.mergeIndex=(nb,remote)=>{
   let localNewer=false;
   if((remote.nameMod||0)>(nb.nameMod||0)){nb.name=remote.name;nb.nameMod=remote.nameMod;}
   else if((nb.nameMod||0)>(remote.nameMod||0))localNewer=true;
-  for(const kind of ["sections","pages","events"]){
+  for(const kind of ["sections","pages","events","members"]){
     const L=new Map((nb[kind]||[]).map(x=>[x.id,x])),R=new Map((remote[kind]||[]).map(x=>[x.id,x]));
     const out=[];
     for(const id of new Set([...L.keys(),...R.keys()])){
@@ -199,6 +199,7 @@ $("#nbmore").onclick=e=>{
   pop(e.currentTarget,[
     {label:"Notizbuch umbenennen",run:()=>textDialog("Notizbuch umbenennen",n.name,v=>{n.name=v;n.nameMod=now();Store.touchIndex(n);renderNav();})},
     od&&{label:"Teilen…",run:()=>shareDialog(n)},
+    {label:"Benutzer verwalten…",run:()=>usersDialog(n)},
     od&&n.drive.webUrl&&{label:"In OneDrive öffnen",run:()=>window.open(n.drive.webUrl,"_blank","noopener")},
     !od&&OD.signedIn&&{label:"In OneDrive speichern",run:async()=>{
       try{toast("Wird nach OneDrive übertragen…");await Sync.createNotebook(n);renderNav();toast("Liegt jetzt in OneDrive");}
@@ -257,7 +258,9 @@ function renderAccount(){
   const a=$("#account");
   if(!OD.enabled){a.innerHTML=`<span class="who">${(window.NOTIZBUCH_CONFIG||{}).clientId?"Anmeldung nur über https möglich":"OneDrive noch nicht eingerichtet"}</span>`;return;}
   if(!OD.signedIn){a.innerHTML=`<button class="btn pri" id="loginBtn">Mit Microsoft anmelden</button>`;$("#loginBtn").onclick=()=>OD.login();return;}
-  a.innerHTML=`<span class="who" title="${esc(OD.account.username)}">${esc(OD.userName)}</span><button class="btn" id="logoutBtn">Abmelden</button>`;
+  const me=Store.me();
+  a.innerHTML=`<button class="who linkish" id="whoBtn" title="${esc(OD.account.username)} · Benutzer verwalten">${esc(me?me+" ("+OD.userName+")":OD.userName)}</button><button class="btn" id="logoutBtn">Abmelden</button>`;
+  $("#whoBtn").onclick=()=>usersDialog(nb());
   $("#logoutBtn").onclick=()=>{flushAll();OD.logout();};
 }
 function updateStatus(){
@@ -598,6 +601,90 @@ function shareDialog(n){
     try{const url=await Sync.shareLink(n);await navigator.clipboard.writeText(url).then(()=>toast("Link kopiert"),()=>{m.querySelector("#shMail").value=url;toast("Link steht im Feld, bitte kopieren");});}
     catch(err){console.error(err);toast("Link erstellen fehlgeschlagen ("+(err.status||err.message)+")");}
   };
+}
+
+/* ---------- Benutzerverwaltung ---------- */
+const MEMBERS=(window.NOTIZBUCH_CONFIG||{}).mitglieder||["Gerhard","Karin","Johannes","Anna"];
+const acctKey=a=>"m:"+String(a||"").trim().toLowerCase();
+Store.personFor=account=>{
+  if(!account)return "";
+  for(const n of Store.notebooks){const m=(n.members||[]).find(x=>x.id===acctKey(account)&&!x.deleted);if(m&&m.person)return m.person;}
+  return "";
+};
+Store.me=()=>{
+  if(OD.signedIn){const p=Store.personFor(OD.account.username);if(p)return p;}
+  try{return localStorage.getItem("ich-bin")||"";}catch(e){return "";}
+};
+function setPerson(n,account,name,person){
+  if(!n||!account)return;
+  n.members=n.members||[];const id=acctKey(account);let m=n.members.find(x=>x.id===id);
+  if(!m){m={id,account,name:name||"",person:"",mod:0};n.members.push(m);}
+  m.person=person;m.name=name||m.name;m.deleted=!person;m.mod=now();
+  Store.touchIndex(n);
+}
+function permInfo(p){
+  const u=(p.grantedToV2&&(p.grantedToV2.user||p.grantedToV2.siteUser))||(p.grantedTo&&p.grantedTo.user)||null;
+  const email=(u&&u.email)||(p.invitation&&p.invitation.email)||"";
+  const name=(u&&u.displayName)||email||"";
+  const roles=p.roles||[];
+  return {id:p.id,name,email,account:email||name,owner:roles.includes("owner"),role:roles.includes("write")||roles.includes("owner")?"write":"read",link:p.link||null,pending:!!(p.invitation&&!u)};
+}
+function personSelect(cur,attrs){return `<select ${attrs}><option value="">– keine Zuordnung –</option>${MEMBERS.map(m=>`<option${m===cur?" selected":""}>${esc(m)}</option>`).join("")}</select>`;}
+async function usersDialog(n){
+  if(!n)return;
+  const od=n.source==="onedrive";const me=Store.me();
+  const m=modal(`<h3>Benutzer von „${esc(n.name)}“</h3>
+    <label>Ich bin${personSelect(me,'id="meSel"')}</label>
+    <p class="small">Deine Termine bekommen damit automatisch deine Farbe, und bei Einträgen steht dein Name.</p>
+    ${od?`<h4 class="ulh">Wer hat Zugriff?</h4><ul class="ulist" id="permList"><li class="small">Wird geladen…</li></ul>
+    <h4 class="ulh">Neue Person einladen</h4>
+    <div class="uinv"><input type="email" id="invMail" placeholder="E-Mail des Microsoft-Kontos">
+      <select id="invRole"><option value="write">darf bearbeiten</option><option value="read">darf nur lesen</option></select>
+      ${personSelect("",'id="invPerson"')}
+      <button class="btn pri" data-inv>Einladen</button></div>
+    <p class="small">Die Person bekommt eine E-Mail von Microsoft. Zugriff und Rechte gelten für das ganze Notizbuch samt Kalender.</p>`
+    :`<p class="small">Dieses Notizbuch liegt nur auf diesem Gerät. Um andere einzuladen, öffne das Notizbuch-Menü ⋯ und wähle „In OneDrive speichern“.</p>`}
+    <div class="row"><button class="btn pri" data-x>Fertig</button></div>`);
+  m.querySelector("#meSel").onchange=e=>{
+    const v=e.target.value;try{localStorage.setItem("ich-bin",v);}catch(_){}
+    if(OD.signedIn)Store.notebooks.filter(x=>x.source==="onedrive").forEach(x=>setPerson(x,OD.account.username,OD.userName,v));
+    renderAccount();toast(v?"Du bist jetzt "+v:"Zuordnung entfernt");
+  };
+  if(!od)return;
+  const list=m.querySelector("#permList");
+  async function load(){
+    let perms;
+    try{perms=(await Sync.permissions(n)).map(permInfo);}
+    catch(err){console.error(err);list.innerHTML=`<li class="small">Die Liste kann nur die Besitzerin oder der Besitzer des Notizbuchs sehen (${err.status||err.message}).</li>`;return;}
+    perms.sort((a,b)=>(b.owner-a.owner)||(!!a.link-!!b.link)||a.name.localeCompare(b.name));
+    list.innerHTML=perms.map(p=>{
+      if(p.link)return `<li><div class="uwho"><b>Freigabe-Link${p.link.type==="edit"?"":" (nur lesen)"}</b><span class="small">Jeder mit dem Link oder QR-Code kommt hinein${p.link.type==="edit"?" und kann bearbeiten":""}.</span></div><button class="btn danger" data-rm="${esc(p.id)}">Link löschen</button></li>`;
+      const person=Store.personFor(p.account);
+      return `<li><div class="uwho"><b>${esc(p.name||"Unbekannt")}</b><span class="small">${esc(p.email&&p.email!==p.name?p.email:"")}${p.owner?" · Besitzer":""}${p.pending?" · Einladung offen":""}</span></div>
+        ${personSelect(person,`data-person="${esc(p.account)}" data-name="${esc(p.name)}" aria-label="Person"`)}
+        ${p.owner?`<span class="small">alle Rechte</span>`:`<select data-role="${esc(p.id)}" aria-label="Recht"><option value="write"${p.role==="write"?" selected":""}>bearbeiten</option><option value="read"${p.role==="read"?" selected":""}>nur lesen</option></select><button class="btn danger" data-rm="${esc(p.id)}">Entfernen</button>`}</li>`;
+    }).join("")||`<li class="small">Noch mit niemandem geteilt.</li>`;
+  }
+  list.addEventListener("change",async e=>{
+    const t=e.target;
+    if(t.dataset.person!==undefined){setPerson(n,t.dataset.person,t.dataset.name,t.value);renderAccount();toast(t.value?"Zugeordnet: "+t.value:"Zuordnung entfernt");}
+    if(t.dataset.role){try{await Sync.setRole(n,t.dataset.role,t.value);toast("Recht geändert");}catch(err){console.error(err);toast("Ändern fehlgeschlagen ("+(err.status||err.message)+")");load();}}
+  });
+  list.addEventListener("click",async e=>{
+    const b=e.target.closest("[data-rm]");if(!b)return;
+    if(!b.dataset.armed){b.dataset.armed="1";b.textContent="Wirklich?";return;}
+    try{await Sync.removePermission(n,b.dataset.rm);toast("Zugriff entfernt");load();}
+    catch(err){console.error(err);toast("Entfernen fehlgeschlagen ("+(err.status||err.message)+")");}
+  });
+  m.querySelector("[data-inv]").onclick=async()=>{
+    const mail=m.querySelector("#invMail").value.trim();if(!/.+@.+\..+/.test(mail)){toast("Bitte eine gültige E-Mail-Adresse eingeben.");return;}
+    try{
+      await Sync.invite(n,mail,m.querySelector("#invRole").value);
+      const person=m.querySelector("#invPerson").value;if(person)setPerson(n,mail,mail,person);
+      toast("Einladung an "+mail+" verschickt");m.querySelector("#invMail").value="";load();
+    }catch(err){console.error(err);toast("Einladen fehlgeschlagen ("+(err.status||err.message)+")");}
+  };
+  load();
 }
 
 /* ---------- QR-Code ---------- */

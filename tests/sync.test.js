@@ -7,6 +7,9 @@ const kids=pid=>[...items.values()].filter(i=>i.parent===pid);
 const view=i=>({id:i.id,name:i.name,eTag:'"e'+i.id+'.'+i.etag+'"',parentReference:{driveId:D,id:i.parent},webUrl:"https://od/"+i.id,
   ...(i.folder?{folder:{childCount:kids(i.id).length}}:{file:{},"@microsoft.graph.downloadUrl":"https://dl.test/"+i.id})});
 const log=[];
+let perms=[{id:'p0',roles:['owner'],grantedToV2:{user:{displayName:'Anna',email:'anna@example.com'}}},
+  {id:'p1',roles:['write'],grantedToV2:{user:{displayName:'Bert',email:'bert@example.com'}}},
+  {id:'p2',roles:['write'],link:{type:'edit',scope:'anonymous'}}];
 async function graph(route){
   const req=route.request();const u=new URL(req.url());const m=req.method();let path=decodeURIComponent(u.pathname.replace('/v1.0',''));
   const send=(st,body)=>route.fulfill({status:st,contentType:'application/json',body:body==null?'':JSON.stringify(body)});
@@ -35,6 +38,11 @@ async function graph(route){
     it.etag++;it.data=req.postData();return send(200,view(it));
   }
   if(mm=path.match(/^\/drives\/D1\/items\/([^/:]+)$/)){const it=items.get(mm[1]);if(m==='DELETE'){items.delete(mm[1]);return send(204);}return it?send(200,view(it)):send(404,{});}
+  if(mm=path.match(/^\/drives\/D1\/items\/([^/:]+)\/permissions(?:\/([^/]+))?$/)){
+    if(m==='GET')return send(200,{value:perms});
+    if(m==='DELETE'){perms=perms.filter(p=>p.id!==mm[2]);return send(204);}
+    if(m==='PATCH'){const p=perms.find(p=>p.id===mm[2]);p.roles=JSON.parse(req.postData()).roles;return send(200,p);}
+  }
   if(mm=path.match(/^\/drives\/D1\/items\/([^/:]+)\/(invite|createLink)$/))return send(200,mm[2]==='invite'?{value:[]}:{link:{webUrl:'https://1drv.ms/f/x'}});
   return send(500,{error:'unhandled '+path});
 }
@@ -80,6 +88,15 @@ async function dl(route){const id=route.request().url().split('/').pop();const i
   // Neustart von A: Daten aus IndexedDB
   await A.reload();await A.waitForTimeout(1200);
   console.log('A after reload nb:',await A.$eval('#nbsel',s=>s.selectedOptions[0].textContent),'| sections:',await A.$$eval('#secs .name',l=>l.map(x=>x.textContent)));
+  // Benutzerverwaltung
+  await A.click('#nbmore');await A.click('.pop button:text-is("Benutzer verwalten…")');await A.waitForTimeout(500);
+  console.log('perm rows:',await A.$$eval('#permList li',l=>l.map(x=>x.innerText.split('\n')[0])));
+  await A.selectOption('#meSel','Karin');
+  await A.selectOption('[data-person="bert@example.com"]','Johannes');
+  await A.selectOption('[data-role="p1"]','read');await A.waitForTimeout(200);
+  await A.click('[data-rm="p2"]');await A.click('[data-rm="p2"]');await A.waitForTimeout(400);
+  console.log('perms now:',JSON.stringify(perms.map(p=>p.id+':'+p.roles)));
+  console.log('me:',await A.evaluate(()=>Store.me()),'| bert ->',await A.evaluate(()=>Store.personFor('bert@example.com')));
   await A.screenshot({path:'A.png'});
   console.log('errors A:',A.errs,'B:',B.errs);
   console.log('unhandled:',log.filter(l=>0).length);

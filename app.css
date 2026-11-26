@@ -273,3 +273,14 @@ optgroup{font-weight:700}
 .famhead .menuclose{position:absolute;right:8px;top:8px;color:#fff;z-index:2}
 .mobtitle{display:none;font-weight:700;font-size:14px;color:var(--fg);margin-right:6px}
 @media (max-width:820px){.mobtitle{display:inline}}
+/* Benutzerverwaltung */
+.ulh{margin:6px 0 0;font-size:14px}
+.ulist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:45vh;overflow:auto}
+.ulist li{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px;border:1px solid var(--line);border-radius:8px}
+.uwho{flex:1 1 180px;min-width:0;display:flex;flex-direction:column}
+.ulist select,.uinv select,.uinv input,.modal label select{font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.uinv{display:flex;gap:6px;flex-wrap:wrap}
+.uinv input{flex:1 1 200px;min-width:0}
+.linkish{background:none;border:0;text-align:left;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.modal .ulist li button{width:auto;flex:none}
+.side-foot .linkish{border:0;padding:0;background:none}
