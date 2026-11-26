@@ -2,7 +2,7 @@
 
 Eigene Notizbuch-App als Ersatz für OneNote. Läuft im Browser auf iPad, PC und Handy und lässt sich wie eine App auf den Home-Bildschirm legen.
 
-**Adresse:** https://ghhelmer.github.io/notizbuch/
+**Adresse:** https://ghhelmer.github.io/Notizbuch/
 
 ## Was sie kann
 
@@ -41,7 +41,7 @@ Microsoft verlangt dafür seit Juni 2024 ein Azure-Konto. Das kostenlose Konto r
 2. Suche oben nach **„App-Registrierungen“** und klicke auf **„Neue Registrierung“**.
 3. Name: `Notizbuch`.
 4. Unterstützte Kontotypen: **„Konten in einem beliebigen Organisationsverzeichnis … und persönliche Microsoft-Konten“**.
-5. Umleitungs-URI: Plattform **„Single-Page-Anwendung (SPA)“**, Adresse `https://ghhelmer.github.io/notizbuch/`
+5. Umleitungs-URI: Plattform **„Single-Page-Anwendung (SPA)“**, Adresse `https://ghhelmer.github.io/Notizbuch/`
 6. Auf **„Registrieren“** klicken.
 7. Die **„Anwendungs-ID (Client)“** kopieren und in `config.js` bei `clientId` eintragen.
 
