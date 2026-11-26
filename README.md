@@ -12,6 +12,10 @@ Eigene Notizbuch-App als Ersatz für OneNote. Läuft im Browser auf iPad, PC und
 - Bilder einfügen, verschieben, Größe ändern
 - Liniertes, kariertes oder leeres Papier
 - Suche über alle Notizbücher
+- Seite als PDF speichern oder drucken
+- Wissenschaftlicher Taschenrechner (Grad/Bogenmaß, Ergebnis ins Blatt übernehmen)
+- Gemeinsamer Kalender: Termine gehören zu einem Notizbuch, alle, mit denen es geteilt ist, sehen und bearbeiten sie
+- Notizbuch oder einzelne Seite per QR-Code teilen
 - Speichern auf dem Gerät (funktioniert offline)
 - Mit Microsoft-Anmeldung: Notizbücher in OneDrive speichern, auf allen Geräten nutzen und mit anderen teilen
 

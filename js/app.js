@@ -27,12 +27,12 @@ function flushAll(){
 window.addEventListener("pagehide",flushAll);
 document.addEventListener("visibilitychange",()=>{if(document.hidden)flushAll();});
 
-Store.indexOf=nb=>({format:1,id:nb.id,name:nb.name,nameMod:nb.nameMod||0,sections:nb.sections,pages:nb.pages});
+Store.indexOf=nb=>({format:1,id:nb.id,name:nb.name,nameMod:nb.nameMod||0,sections:nb.sections,pages:nb.pages,events:nb.events||[]});
 Store.mergeIndex=(nb,remote)=>{
   let localNewer=false;
   if((remote.nameMod||0)>(nb.nameMod||0)){nb.name=remote.name;nb.nameMod=remote.nameMod;}
   else if((nb.nameMod||0)>(remote.nameMod||0))localNewer=true;
-  for(const kind of ["sections","pages"]){
+  for(const kind of ["sections","pages","events"]){
     const L=new Map((nb[kind]||[]).map(x=>[x.id,x])),R=new Map((remote[kind]||[]).map(x=>[x.id,x]));
     const out=[];
     for(const id of new Set([...L.keys(),...R.keys()])){
@@ -58,7 +58,7 @@ function touchPage(){
   Store.savePage(p.id);
 }
 Store.toast=t=>toast(t);
-Store.refresh=()=>{renderNav();const p=page();if(!p||p.id!==shownPage)renderPage();updateStatus();};
+Store.refresh=()=>{renderNav();if(window.Kalender)Kalender.render();const p=page();if(!p||p.id!==shownPage)renderPage();updateStatus();};
 let pendingRender=false;
 Store.pageArrived=pid=>{
   const p=page();if(!p||p.id!==pid)return;
@@ -490,11 +490,13 @@ document.addEventListener("keydown",e=>{
 });
 /* ---------- Taschenrechner ---------- */
 $("#calcBtn").onclick=()=>Calc.toggle();
+$("#calendarBtn").onclick=()=>Kalender.toggle();
 window.NotizApp={insertCalc(expr,result){
   const c=pc();if(!c){toast("Lege zuerst eine Seite an.");return;}
   const line=`<div>${esc(expr)} = <b>${esc(result)}</b></div>`;
   if(lastBox&&sheet.contains(lastBox)){lastBox.insertAdjacentHTML("beforeend",line);lastBox.dispatchEvent(new Event("input"));toast("Ins Blatt übernommen");return;}
-  const y=Math.max(32,Math.round((wrap.scrollTop-sheet.offsetTop+96)/32)*32);
+  const top=wrap.scrollTop-sheet.offsetTop,below=Math.ceil((contentBottom()+16)/32)*32;
+  const y=below>top+40&&below<top+wrap.clientHeight-120?below:Math.max(32,Math.round((top+96)/32)*32);
   const b={id:uid(),x:40+wrap.scrollLeft,y,w:420,html:line,text:expr+" = "+result};
   c.boxes.push(b);lastBox=addBoxEl(b).querySelector(".content");touchPage();sizeSheet();toast("Ins Blatt übernommen");
 }};
