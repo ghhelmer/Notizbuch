@@ -263,10 +263,11 @@ const Sync={
     const idx=await OD.childByName(ref.driveId,ref.itemId,"notebook.json");
     if(!idx)return false;
     const remote=await OD.download(idx);
-    if(Store.notebooks.some(n=>n.id===remote.id))return "exists";
+    const known=Store.notebooks.find(n=>n.id===remote.id);
+    if(known){this.lastAttached=known;return "exists";}
     const nb={id:remote.id||Store.uid(),name:remote.name||ref.name,nameMod:0,sections:[],pages:[],source:"onedrive",own:!!own,owner:ref.owner||"",
       drive:{driveId:ref.driveId,itemId:ref.itemId,pagesId:null,indexEtag:null,indexId:null},indexDirty:false,indexVer:0};
-    Store.notebooks.push(nb);Store.saveNotebooks();
+    Store.notebooks.push(nb);Store.saveNotebooks();this.lastAttached=nb;
     await this.pull(nb);
     return true;
   },

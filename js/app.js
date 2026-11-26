@@ -233,6 +233,7 @@ function pageMenu(id,anchor){
     i>0&&{label:"Nach oben",run:()=>{swapPos(p,v[i-1]);Store.touchIndex(n);renderNav();}},
     i<v.length-1&&{label:"Nach unten",run:()=>{swapPos(p,v[i+1]);Store.touchIndex(n);renderNav();}},
     ...others.map(o=>({label:"Verschieben nach „"+o.name+"“",run:()=>{const t=pagesOf(n,o.id);p.sec=o.id;p.pos=(t.length?t[t.length-1].pos:0)+1;p.mod=now();Store.touchIndex(n);renderAll();}})),
+    n.source==="onedrive"&&{label:"Seite per QR-Code teilen",run:()=>qrDialog(n,p)},
     {label:"Seite löschen",danger:true,confirm:"Wirklich löschen? Nochmal tippen",run:()=>{
       p.deleted=true;p.mod=now();if(n.source!=="onedrive"){Store.pages.delete(id);DB.del("page:"+id);}Store.touchIndex(n);renderAll();}}
   ]);
@@ -487,6 +488,17 @@ document.addEventListener("keydown",e=>{
   const a=document.activeElement;
   if((e.ctrlKey||e.metaKey)&&e.key==="z"&&!e.shiftKey&&!(a&&a.isContentEditable)&&!(a&&/INPUT|TEXTAREA/.test(a.tagName))){e.preventDefault();undo();}
 });
+/* ---------- Taschenrechner ---------- */
+$("#calcBtn").onclick=()=>Calc.toggle();
+window.NotizApp={insertCalc(expr,result){
+  const c=pc();if(!c){toast("Lege zuerst eine Seite an.");return;}
+  const line=`<div>${esc(expr)} = <b>${esc(result)}</b></div>`;
+  if(lastBox&&sheet.contains(lastBox)){lastBox.insertAdjacentHTML("beforeend",line);lastBox.dispatchEvent(new Event("input"));toast("Ins Blatt übernommen");return;}
+  const y=Math.max(32,Math.round((wrap.scrollTop-sheet.offsetTop+96)/32)*32);
+  const b={id:uid(),x:40+wrap.scrollLeft,y,w:420,html:line,text:expr+" = "+result};
+  c.boxes.push(b);lastBox=addBoxEl(b).querySelector(".content");touchPage();sizeSheet();toast("Ins Blatt übernommen");
+}};
+
 /* ---------- PDF / Drucken ---------- */
 $("#pdfBtn").onclick=()=>{
   const p=page(),c=pc();if(!p||!c){toast("Keine Seite geöffnet.");return;}
@@ -565,7 +577,8 @@ function shareDialog(n){
   const m=modal(`<h3>„${esc(n.name)}“ teilen</h3>
     <p>Die eingeladene Person bekommt eine E-Mail von Microsoft und kann das Notizbuch in dieser App unter „Freigegebenes Notizbuch öffnen“ hinzufügen und mitbearbeiten.</p>
     <label>E-Mail-Adresse (Microsoft-Konto)<input type="email" id="shMail" placeholder="name@outlook.de"></label>
-    <div class="row"><button class="btn" data-copy>Link kopieren</button><button class="btn" data-x>Schließen</button><button class="btn pri" data-inv>Einladen</button></div>`);
+    <div class="row"><button class="btn" data-qr>QR-Code</button><button class="btn" data-copy>Link kopieren</button><button class="btn" data-x>Schließen</button><button class="btn pri" data-inv>Einladen</button></div>`);
+  m.querySelector("[data-qr]").onclick=()=>{m.remove();qrDialog(n,null);};
   m.querySelector("[data-inv]").onclick=async()=>{
     const v=m.querySelector("#shMail").value.trim();if(!/.+@.+\..+/.test(v)){toast("Bitte eine gültige E-Mail-Adresse eingeben.");return;}
     try{await Sync.invite(n,v);toast("Einladung an "+v+" verschickt");m.remove();}
@@ -576,6 +589,45 @@ function shareDialog(n){
     catch(err){console.error(err);toast("Link erstellen fehlgeschlagen ("+(err.status||err.message)+")");}
   };
 }
+
+/* ---------- QR-Code ---------- */
+async function qrDialog(n,p){
+  const m=modal(`<h3>${p?"Seite „"+esc(p.title||"Ohne Titel")+"“":"Notizbuch „"+esc(n.name)+"“"} per QR-Code teilen</h3>
+    <div id="qrBox" style="display:grid;place-items:center;min-height:240px;background:#fff;border-radius:8px;padding:12px">Wird erstellt…</div>
+    <p class="small">Mit der Handy- oder iPad-Kamera scannen. Die App öffnet sich, nach der Anmeldung mit einem privaten Microsoft-Konto ist das Notizbuch da und kann mitbearbeitet werden. Wer den Code hat, kann mitlesen und mitschreiben, also nur an Vertraute zeigen.</p>
+    <div class="row"><button class="btn" data-copy>Link kopieren</button><button class="btn pri" data-x>Fertig</button></div>`);
+  let url="";
+  try{
+    const link=await Sync.shareLink(n);
+    url=location.origin+location.pathname+"?teilen="+encodeURIComponent(link)+(p?"&seite="+encodeURIComponent(p.id):"");
+    const q=qrcode(0,"M");q.addData(url,"Byte");q.make();
+    m.querySelector("#qrBox").innerHTML=q.createSvgTag({cellSize:5,margin:2,scalable:true}).replace("<svg ",'<svg style="width:min(280px,70vw);height:auto" ');
+  }catch(err){console.error(err);m.querySelector("#qrBox").textContent="QR-Code konnte nicht erstellt werden ("+(err.status||err.message)+").";}
+  m.querySelector("[data-copy]").onclick=()=>{if(url)navigator.clipboard.writeText(url).then(()=>toast("Link kopiert"),()=>toast("Kopieren nicht möglich"));};
+}
+async function openPendingShare(){
+  let pend=null;try{pend=JSON.parse(localStorage.getItem("notizbuch-teilen")||"null");}catch(e){}
+  if(!pend)return;
+  if(!OD.enabled)return;
+  if(!OD.signedIn){toast("Bitte unten links anmelden, dann öffnet sich das geteilte Notizbuch.");return;}
+  try{localStorage.removeItem("notizbuch-teilen");}catch(e){}
+  try{
+    toast("Geteiltes Notizbuch wird geöffnet…");
+    const ref=await Sync.resolveLink(pend.link);
+    const r=await Sync.attach(ref,false);
+    const n=Sync.lastAttached;
+    if(!r||!n){toast("Unter diesem Code liegt kein Notizbuch.");return;}
+    const pg=pend.seite&&n.pages.find(x=>x.id===pend.seite&&!x.deleted);
+    go(n.id,pg?pg.sec:null,pg?pg.id:null);renderAll();toast("„"+n.name+"“ geöffnet");
+  }catch(err){console.error(err);toast("Öffnen fehlgeschlagen ("+(err.status||err.message)+")");}
+}
+(function(){
+  const q=new URLSearchParams(location.search);
+  if(q.get("teilen")){
+    try{localStorage.setItem("notizbuch-teilen",JSON.stringify({link:q.get("teilen"),seite:q.get("seite")||""}));}catch(e){}
+    history.replaceState(null,"",location.pathname);
+  }
+})();
 
 /* ---------- Sicherung ---------- */
 $("#exportBtn").onclick=()=>{
@@ -617,5 +669,6 @@ if(OD.signedIn){
   Sync.start();
   Sync.discoverOwn().then(k=>{if(k){renderNav();toast(k+" Notizbuch/-bücher aus OneDrive geladen");}}).catch(e=>console.warn("discover",e));
 }
+openPendingShare();
 if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js").catch(()=>{});
 })();
