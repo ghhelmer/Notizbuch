@@ -21,7 +21,7 @@ const OD={
     if(location.protocol!=="https:"&&location.hostname!=="localhost")return;
     try{
       this.msal=new msal.PublicClientApplication({
-        auth:{clientId:cfg.clientId,authority:"https://login.microsoftonline.com/common",redirectUri:location.origin+location.pathname},
+        auth:{clientId:cfg.clientId,authority:"https://login.microsoftonline.com/"+(cfg.authority||"common"),redirectUri:location.origin+location.pathname},
         cache:{cacheLocation:"localStorage"}
       });
       await this.msal.initialize();
