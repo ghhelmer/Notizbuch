@@ -121,7 +121,20 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
   .size{width:64px}
 }
 [hidden]{display:none!important}
-@media (max-width:600px){.tbtn .l{display:none}.tools .sep{display:none}.tbtn{min-width:34px;padding:0 6px}}
+@media (max-width:600px){
+  .tbtn .l{display:none}.tools .sep{display:none}.tbtn{min-width:38px;padding:0 6px;flex:none}
+  /* Handy: Werkzeugleiste als eine waagrechte, wischbare Zeile statt vier Zeilen */
+  .tools{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;padding:6px 8px;gap:2px;
+    -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent)}
+  .tools::-webkit-scrollbar{display:none}
+  .tools>*{flex:none}
+  .tools .menubtn{position:sticky;left:-8px;z-index:2;background:var(--panel);border-radius:0 10px 10px 0;box-shadow:6px 0 8px -6px rgba(0,0,0,.25)}
+  .mobtitle{display:none!important}
+  .sw{width:26px;height:26px}
+  /* Rechner: volle Breite unten, nicht verschiebbar */
+  .calc{left:8px!important;right:8px!important;top:auto!important;bottom:calc(8px + env(safe-area-inset-bottom,0px))!important;width:auto!important;max-height:calc(100dvh - 16px)}
+  .calc-head{cursor:default}.calc-grip{visibility:hidden}
+}
 @media (prefers-reduced-motion:reduce){.side{transition:none}}
 /* Sync und Konto */
 .status{font-size:12px;color:var(--muted);padding:0 14px 8px;display:flex;align-items:center;gap:6px}
@@ -155,7 +168,7 @@ optgroup{font-weight:700}
   .box,.img{border-color:transparent!important}
 }
 /* Taschenrechner im Stil eines Schulrechners (eigenes Design) */
-.calc{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:45;width:min(360px,calc(100vw - 24px));
+.calc{box-sizing:border-box;position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:45;width:min(360px,calc(100vw - 24px));
   background:linear-gradient(170deg,#3a4648,#232b2d 60%);color:#e9efef;border-radius:22px 22px 30px 30px;padding:12px 12px 14px;box-shadow:0 14px 40px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.12);display:flex;flex-direction:column;gap:9px;max-height:calc(100vh - 32px);overflow:auto}
 .calc-head{display:flex;align-items:center;gap:8px;cursor:move;touch-action:none;padding:0 4px}
 .calc-brand{font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-size:11px;color:#9fb5b8}
@@ -260,6 +273,14 @@ optgroup{font-weight:700}
   .cal-whead{width:56px;flex-direction:column}
   .cal-wev{flex:1 1 160px}
   .cal-day .cal-chip{font-size:0;height:6px;padding:0;border-left-width:0;background:var(--c)}
+  /* Kopf: oben ‹ Datum ›, darunter Heute / Ansicht / Schließen */
+  .cal-head{gap:6px 8px;padding:8px 10px}
+  .cal-head h3{flex:1 1 calc(100% - 100px);min-width:0;font-size:17px}
+  .cal-head .seg button{padding:7px 11px}
+  /* Kategorien in einer wischbaren Zeile */
+  .cal-cats{flex:none;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:8px 10px}
+  .cal-cats::-webkit-scrollbar{display:none}
+  .cal-cat{flex:none}
 }
 
 /* Kopfbereich Familienorganisation */

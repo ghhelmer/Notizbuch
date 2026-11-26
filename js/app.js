@@ -86,8 +86,8 @@ function sampleNotebook(){
   const s1=addSection(n,"Allgemein");const s2=addSection(n,"Ideen");
   addPage(n,s1.id,"Willkommen (Beispielseite)",{bg:"lined",mod:now(),
     boxes:[
-      {id:uid(),x:40,y:32,w:560,html:"<h2>So funktioniert dein Notizbuch</h2><div>Tippe irgendwo auf das Blatt, um einen Textkasten anzulegen. Den Kasten verschiebst du am grauen Balken oben.</div><ul class=\"todo\"><li data-done=\"\">Erste Seite angelegt</li><li>Mit dem Stift etwas zeichnen</li><li>Ein Bild einfügen</li></ul><div>Melde dich unten links mit Microsoft an, um Notizbücher in OneDrive zu speichern und mit anderen zu teilen.</div>"},
-      {id:uid(),x:680,y:96,w:300,html:"<div><b>Tipp:</b> Mit dem Apple Pencil zeichnest du, mit dem Finger blätterst du.</div>"}],
+      {id:uid(),x:40,y:32,w:Math.max(260,Math.min(560,innerWidth-80)),html:"<h2>So funktioniert dein Notizbuch</h2><div>Tippe irgendwo auf das Blatt, um einen Textkasten anzulegen. Den Kasten verschiebst du am grauen Balken oben.</div><ul class=\"todo\"><li data-done=\"\">Erste Seite angelegt</li><li>Mit dem Stift etwas zeichnen</li><li>Ein Bild einfügen</li></ul><div>Melde dich unten links mit Microsoft an, um Notizbücher in OneDrive zu speichern und mit anderen zu teilen.</div>"},
+      {id:uid(),x:innerWidth<700?40:680,y:innerWidth<700?448:96,w:300,html:"<div><b>Tipp:</b> Mit dem Apple Pencil zeichnest du, mit dem Finger blätterst du.</div>"}],
     images:[],
     strokes:[{tool:"pen",color:"#c62828",size:3,points:[[690,260,.5],[720,250,.5],[760,246,.5],[800,252,.5],[835,268,.5],[858,290,.5],[845,282,.5],[858,290,.5],[852,275,.5]]}]});
   addPage(n,s2.id,"Erste Idee");
@@ -369,7 +369,7 @@ sheet.addEventListener("click",e=>{
   sheet.querySelectorAll(".img.sel").forEach(x=>x.classList.remove("sel"));
   const c=pc();if(!c)return;
   const r=sheet.getBoundingClientRect();const x=e.clientX-r.left,y=e.clientY-r.top;
-  const b={id:uid(),x:Math.max(0,x-8),y:Math.max(0,Math.floor((y-4)/32)*32),w:Math.min(480,SHEET_W-x),html:"",text:""};
+  const b={id:uid(),x:Math.max(0,x-8),y:Math.max(0,Math.floor((y-4)/32)*32),w:Math.max(160,Math.min(480,SHEET_W-x,innerWidth-r.left-x-16)),html:"",text:""};
   c.boxes.push(b);const el=addBoxEl(b);el.querySelector(".content").focus();
 });
 
@@ -513,7 +513,7 @@ window.NotizApp={insertCalc(expr,result){
   if(lastBox&&sheet.contains(lastBox)){lastBox.insertAdjacentHTML("beforeend",line);lastBox.dispatchEvent(new Event("input"));toast("Ins Blatt übernommen");return;}
   const top=wrap.scrollTop-sheet.offsetTop,below=Math.ceil((contentBottom()+16)/32)*32;
   const y=below>top+40&&below<top+wrap.clientHeight-120?below:Math.max(32,Math.round((top+96)/32)*32);
-  const b={id:uid(),x:40+wrap.scrollLeft,y,w:420,html:line,text:expr+" = "+result};
+  const b={id:uid(),x:(innerWidth<600?16:40)+wrap.scrollLeft,y,w:Math.max(200,Math.min(420,wrap.clientWidth-56)),html:line,text:expr+" = "+result};
   c.boxes.push(b);lastBox=addBoxEl(b).querySelector(".content");touchPage();sizeSheet();toast("Ins Blatt übernommen");
 }};
 
