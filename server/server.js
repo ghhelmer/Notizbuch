@@ -239,6 +239,8 @@ if(require.main===module){
     http.createServer((req,res)=>{
       handle(req,res).catch(e=>{if(!e.status)console.error(e);if(!res.headersSent)send(res,e.status||500,{error:e.status?e.message:"Interner Fehler"});});
     }).listen(PORT,HOST,()=>console.log(`Notizbuch-Server läuft auf ${HOST}:${PORT}, Daten in ${DATA}`));
+    /* Änderungen über die Befehlszeile (z. B. „passwort“) ohne Neustart übernehmen */
+    fs.watchFile(USERS,{interval:2000},()=>readJson(USERS,null).then(u=>{if(Array.isArray(u))users=u;}));
   });
 }
 module.exports={handle,loadState};

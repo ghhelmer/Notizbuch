@@ -67,3 +67,21 @@ Der Test simuliert OneDrive und zwei Personen, die dasselbe Notizbuch bearbeiten
 python3 -m http.server 8765 &
 node tests/sync.test.js
 ```
+
+## Eigener Familien-Server (ohne Microsoft-Konten)
+
+Statt OneDrive kann die App auf einem eigenen kleinen Server laufen (z. B. Hetzner Cloud, Ubuntu 24.04).
+Dann meldet sich jeder mit Benutzername und Passwort an, und alle Notizbücher und der Kalender liegen auf dem Server.
+
+Einrichten (als root auf dem frischen Server):
+
+```
+curl -fsSL https://raw.githubusercontent.com/ghhelmer/Notizbuch/main/server/install.sh | bash
+```
+
+Das Skript installiert Node.js, Caddy (https), Firewall, automatische Updates und eine tägliche Sicherung
+und fragt am Ende nach dem Admin-Zugang. Weitere Skripte:
+
+- `server/storagebox.sh` – Hetzner Storage Box als großen Speicher einbinden
+- `server/update.sh` – auf die neueste Version aktualisieren
+- `node server/server.js liste | passwort NAME PW | benutzer-anlegen NAME PW | admin-anlegen NAME PW` (mit `DATA_DIR=…`)
