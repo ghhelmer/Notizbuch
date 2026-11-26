@@ -284,3 +284,13 @@ optgroup{font-weight:700}
 .linkish{background:none;border:0;text-align:left;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
 .modal .ulist li button{width:auto;flex:none}
 .side-foot .linkish{border:0;padding:0;background:none}
+/* Anmeldung am Familien-Server */
+.login-bg{position:fixed;inset:0;z-index:80;background:var(--bg);display:grid;place-items:center;padding:16px}
+.login{width:min(380px,100%);background:var(--panel);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.18);padding:14px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+.login-head{margin:-14px -14px 4px;border-radius:0}
+.login label{display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:13px}
+.login input{font:inherit;font-size:16px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.login .btn{padding:11px;font-size:15px}
+.login-err{margin:0;color:var(--danger);font-weight:600}
+.qrsmall{display:flex}
+.modal{max-height:calc(100vh - 32px);overflow:auto}

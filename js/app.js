@@ -109,6 +109,10 @@ function fromV1(state){
 }
 
 await DB.open();
+// Läuft die App auf dem eigenen Familien-Server? Dann Server-Anmeldung und -Abgleich statt OneDrive.
+const SERVER=await ServerMode.detect();
+if(SERVER){window.OD=ServerMode.Auth;window.Sync=ServerMode.Sync;}
+const R=SERVER?{in:"auf dem Familien-Server",save:"Auf dem Familien-Server speichern",name:"Familien-Server"}:{in:"in OneDrive",save:"In OneDrive speichern",name:"OneDrive"};
 Store.notebooks=(await DB.get("notebooks"))||[];
 for(const [k,v] of await DB.all("page:"))Store.pages.set(k.slice(5),v);
 Store.ui=(await DB.get("ui"))||{};
@@ -130,8 +134,8 @@ function renderNav(){
   const sel=$("#nbsel");
   const group=(label,list)=>list.length?`<optgroup label="${label}">${list.map(x=>`<option value="${x.id}"${n&&x.id===n.id?" selected":""}>${esc(x.name)}${x.broken?" (nicht erreichbar)":""}</option>`).join("")}</optgroup>`:"";
   const L=Store.notebooks;
-  sel.innerHTML=group("Auf diesem Gerät",L.filter(x=>x.source!=="onedrive"))+group("In meinem OneDrive",L.filter(x=>x.source==="onedrive"&&x.own))+group("Für mich freigegeben",L.filter(x=>x.source==="onedrive"&&!x.own))
-    +`<optgroup label="Hinzufügen"><option value="__new">+ Neues Notizbuch</option>${OD.signedIn?`<option value="__shared">+ Freigegebenes Notizbuch öffnen</option>`:""}</optgroup>`;
+  sel.innerHTML=group("Auf diesem Gerät",L.filter(x=>x.source!=="onedrive"))+group(SERVER?"Familie (Server)":"In meinem OneDrive",L.filter(x=>x.source==="onedrive"&&x.own))+group("Für mich freigegeben",L.filter(x=>x.source==="onedrive"&&!x.own))
+    +`<optgroup label="Hinzufügen"><option value="__new">+ Neues Notizbuch</option>${OD.signedIn&&!SERVER?`<option value="__shared">+ Freigegebenes Notizbuch öffnen</option>`:""}</optgroup>`;
   if(!n){$("#secs").innerHTML="";$("#pages").innerHTML="";return;}
   const s=sec();Store.ui.sec=s&&s.id;
   $("#secs").innerHTML=sections(n).map(x=>`<li class="item${s&&x.id===s.id?" on":""}" data-sec="${x.id}"><span class="dot" style="background:${x.color}"></span><span class="name">${esc(x.name)}</span><button class="iconbtn more" data-secmore="${x.id}" aria-label="Abschnitt-Menü">⋯</button></li>`).join("")
@@ -198,13 +202,14 @@ $("#nbmore").onclick=e=>{
   const od=n.source==="onedrive";
   pop(e.currentTarget,[
     {label:"Notizbuch umbenennen",run:()=>textDialog("Notizbuch umbenennen",n.name,v=>{n.name=v;n.nameMod=now();Store.touchIndex(n);renderNav();})},
-    od&&{label:"Teilen…",run:()=>shareDialog(n)},
-    {label:"Benutzer verwalten…",run:()=>usersDialog(n)},
+    od&&!SERVER&&{label:"Teilen…",run:()=>shareDialog(n)},
+    {label:"Benutzer verwalten…",run:()=>SERVER?serverUsersDialog():usersDialog(n)},
     od&&n.drive.webUrl&&{label:"In OneDrive öffnen",run:()=>window.open(n.drive.webUrl,"_blank","noopener")},
-    !od&&OD.signedIn&&{label:"In OneDrive speichern",run:async()=>{
-      try{toast("Wird nach OneDrive übertragen…");await Sync.createNotebook(n);renderNav();toast("Liegt jetzt in OneDrive");}
+    !od&&OD.signedIn&&{label:R.save,run:async()=>{
+      try{toast("Wird übertragen…");await Sync.createNotebook(n);renderNav();toast("Liegt jetzt "+R.in);}
       catch(err){console.error(err);toast("Übertragen fehlgeschlagen: "+(err.status||err.message));}}},
-    od?{label:"Aus dieser App entfernen",danger:true,confirm:"Bleibt in OneDrive. Nochmal tippen",run:()=>removeNotebook(n)}
+    od?(SERVER?(OD.account&&OD.account.admin?{label:"Notizbuch für alle löschen",danger:true,confirm:"Für die ganze Familie löschen? Nochmal tippen",run:async()=>{try{await OD.apiJson("DELETE","notebooks/"+n.id);removeNotebook(n);toast("Gelöscht");}catch(err){toast("Löschen fehlgeschlagen: "+err.message);}}}:null)
+      :{label:"Aus dieser App entfernen",danger:true,confirm:"Bleibt in OneDrive. Nochmal tippen",run:()=>removeNotebook(n)})
       :{label:"Notizbuch löschen",danger:true,confirm:"Wirklich löschen? Nochmal tippen",run:()=>removeNotebook(n)}
   ]);
 };
@@ -234,7 +239,7 @@ function pageMenu(id,anchor){
     i>0&&{label:"Nach oben",run:()=>{swapPos(p,v[i-1]);Store.touchIndex(n);renderNav();}},
     i<v.length-1&&{label:"Nach unten",run:()=>{swapPos(p,v[i+1]);Store.touchIndex(n);renderNav();}},
     ...others.map(o=>({label:"Verschieben nach „"+o.name+"“",run:()=>{const t=pagesOf(n,o.id);p.sec=o.id;p.pos=(t.length?t[t.length-1].pos:0)+1;p.mod=now();Store.touchIndex(n);renderAll();}})),
-    n.source==="onedrive"&&{label:"Seite per QR-Code teilen",run:()=>qrDialog(n,p)},
+    n.source==="onedrive"&&!SERVER&&{label:"Seite per QR-Code teilen",run:()=>qrDialog(n,p)},
     {label:"Seite löschen",danger:true,confirm:"Wirklich löschen? Nochmal tippen",run:()=>{
       p.deleted=true;p.mod=now();if(n.source!=="onedrive"){Store.pages.delete(id);DB.del("page:"+id);}Store.touchIndex(n);renderAll();}}
   ]);
@@ -257,10 +262,10 @@ $("#closeSide").onclick=closeSide;
 function renderAccount(){
   const a=$("#account");
   if(!OD.enabled){a.innerHTML=`<span class="who">${(window.NOTIZBUCH_CONFIG||{}).clientId?"Anmeldung nur über https möglich":"OneDrive noch nicht eingerichtet"}</span>`;return;}
-  if(!OD.signedIn){a.innerHTML=`<button class="btn pri" id="loginBtn">Mit Microsoft anmelden</button>`;$("#loginBtn").onclick=()=>OD.login();return;}
+  if(!OD.signedIn){a.innerHTML=`<button class="btn pri" id="loginBtn">${SERVER?"Anmelden":"Mit Microsoft anmelden"}</button>`;$("#loginBtn").onclick=()=>OD.login();return;}
   const me=Store.me();
-  a.innerHTML=`<button class="who linkish" id="whoBtn" title="${esc(OD.account.username)} · Benutzer verwalten">${esc(me?me+" ("+OD.userName+")":OD.userName)}</button><button class="btn" id="logoutBtn">Abmelden</button>`;
-  $("#whoBtn").onclick=()=>usersDialog(nb());
+  a.innerHTML=`<button class="who linkish" id="whoBtn" title="${esc(OD.account.username)} · Benutzer verwalten">${esc(SERVER||!me||me===OD.userName?(me||OD.userName):me+" ("+OD.userName+")")}</button><button class="btn" id="logoutBtn">Abmelden</button>`;
+  $("#whoBtn").onclick=()=>SERVER?serverUsersDialog():usersDialog(nb());
   $("#logoutBtn").onclick=()=>{flushAll();OD.logout();};
 }
 function updateStatus(){
@@ -275,7 +280,7 @@ function updateStatus(){
   if(st==="busy"){el.classList.add("busy");t.textContent="Wird abgeglichen…";return;}
   const dirty=n.indexDirty||[...Store.pages.values()].some(r=>r.nb===n.id&&r.dirty);
   if(dirty){el.classList.add("busy");t.textContent="Änderungen warten aufs Hochladen";return;}
-  el.classList.add("ok");t.textContent="In OneDrive gespeichert"+(n.own?"":(n.owner?" (von "+n.owner+")":" (freigegeben)"));
+  el.classList.add("ok");t.textContent=(SERVER?"Auf dem Familien-Server gespeichert":"In OneDrive gespeichert")+(n.own?"":(n.owner?" (von "+n.owner+")":" (freigegeben)"));
 }
 Sync.listeners.push(updateStatus);
 
@@ -309,7 +314,7 @@ function renderPage(){
   $("#ptitle").value=p.title;
   $("#pmeta").textContent=new Date(p.created).toLocaleString("de-DE",{weekday:"long",day:"numeric",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"});
   if(!c){
-    sheet.className="sheet";const l=document.createElement("div");l.className="loading";l.textContent="Seite wird aus OneDrive geladen…";sheet.appendChild(l);
+    sheet.className="sheet";const l=document.createElement("div");l.className="loading";l.textContent="Seite wird geladen…";sheet.appendChild(l);
     sizeSheet(true);redraw();Sync.schedule(100);return;
   }
   sheet.className="sheet"+(c.bg==="grid"?" grid":c.bg==="plain"?" plain":"")+(tool!=="text"?" drawing":"");
@@ -548,9 +553,9 @@ function newNotebookDialog(){
   const can=OD.signedIn;
   const m=modal(`<h3>Neues Notizbuch</h3>
     <label>Name<input type="text" id="nbName" value="Neues Notizbuch"></label>
-    <label class="choice"><input type="radio" name="where" value="onedrive" ${can?"checked":"disabled"}> In OneDrive (auf allen Geräten, teilbar)</label>
+    <label class="choice"><input type="radio" name="where" value="onedrive" ${can?"checked":"disabled"}> ${SERVER?"Auf dem Familien-Server (für alle in der Familie)":"In OneDrive (auf allen Geräten, teilbar)"}</label>
     <label class="choice"><input type="radio" name="where" value="local" ${can?"":"checked"}> Nur auf diesem Gerät</label>
-    ${can?"":`<p class="small">Für OneDrive musst du dich zuerst unten links mit Microsoft anmelden.</p>`}
+    ${can?"":`<p class="small">Dafür musst du dich zuerst unten links anmelden.</p>`}
     <div class="row"><button class="btn" data-x>Abbrechen</button><button class="btn pri" data-ok>Anlegen</button></div>`);
   const inp=m.querySelector("#nbName");inp.focus();inp.select();
   m.querySelector("[data-ok]").onclick=async()=>{
@@ -558,8 +563,8 @@ function newNotebookDialog(){
     const n=newNotebook(name);const s=addSection(n,"Allgemein");addPage(n,s.id,"");
     Store.notebooks.push(n);Store.saveNotebooks();go(n.id,null,null);m.remove();renderAll();
     if(where==="onedrive"){
-      try{toast("Wird in OneDrive angelegt…");await Sync.createNotebook(n);renderNav();toast("Notizbuch in OneDrive angelegt");}
-      catch(err){console.error(err);toast("OneDrive nicht erreichbar. Das Notizbuch liegt vorerst nur auf diesem Gerät.");}
+      try{toast("Wird angelegt…");await Sync.createNotebook(n);renderNav();toast("Notizbuch "+R.in+" angelegt");}
+      catch(err){console.error(err);toast(R.name+" nicht erreichbar. Das Notizbuch liegt vorerst nur auf diesem Gerät.");}
     }
   };
 }
@@ -612,6 +617,7 @@ Store.personFor=account=>{
   return "";
 };
 Store.me=()=>{
+  if(SERVER&&OD.signedIn)return OD.account.person||OD.account.display||OD.account.name;
   if(OD.signedIn){const p=Store.personFor(OD.account.username);if(p)return p;}
   try{return localStorage.getItem("ich-bin")||"";}catch(e){return "";}
 };
@@ -683,6 +689,63 @@ async function usersDialog(n){
       const person=m.querySelector("#invPerson").value;if(person)setPerson(n,mail,mail,person);
       toast("Einladung an "+mail+" verschickt");m.querySelector("#invMail").value="";load();
     }catch(err){console.error(err);toast("Einladen fehlgeschlagen ("+(err.status||err.message)+")");}
+  };
+  load();
+}
+
+/* ---------- Benutzerverwaltung auf dem Familien-Server ---------- */
+async function serverUsersDialog(){
+  const me=OD.account;const admin=!!me.admin;
+  const m=modal(`<h3>Benutzer der Familie</h3>
+    <ul class="ulist" id="suList"><li class="small">Wird geladen…</li></ul>
+    ${admin?`<h4 class="ulh">Neuen Benutzer anlegen</h4>
+    <div class="uinv"><input type="text" id="suName" placeholder="Benutzername, z. B. karin" autocapitalize="none">
+      <input type="text" id="suPw" placeholder="Start-Passwort (mind. 6 Zeichen)">
+      ${personSelect("",'id="suPerson"')}
+      <label class="choice"><input type="checkbox" id="suAdmin"> Admin</label>
+      <button class="btn pri" data-add>Anlegen</button></div>
+    <p class="small">Gib das Start-Passwort persönlich weiter. Jeder kann es danach unter „Mein Passwort ändern“ selbst ändern.</p>`:""}
+    <h4 class="ulh">Mein Passwort ändern</h4>
+    <div class="uinv"><input type="password" id="pwOld" placeholder="Altes Passwort" autocomplete="current-password"><input type="password" id="pwNew" placeholder="Neues Passwort" autocomplete="new-password"><button class="btn" data-pw>Ändern</button></div>
+    <h4 class="ulh">App auf dem Handy öffnen</h4>
+    <div class="qrsmall" id="appQr"></div>
+    <p class="small">Mit der Handykamera scannen, dann im Browser „Zum Home-Bildschirm“ wählen.</p>
+    <div class="row"><button class="btn pri" data-x>Fertig</button></div>`);
+  try{const q=qrcode(0,"M");q.addData(location.origin+location.pathname,"Byte");q.make();m.querySelector("#appQr").innerHTML=q.createSvgTag({cellSize:4,margin:2,scalable:true}).replace("<svg ",'<svg style="width:150px;height:auto;background:#fff" ');}catch(e){}
+  const list=m.querySelector("#suList");
+  async function load(){
+    let us;try{us=await OD.apiJson("GET","users");}catch(err){list.innerHTML=`<li class="small">${esc(err.message)}</li>`;return;}
+    list.innerHTML=us.map(u=>`<li data-u="${esc(u.name)}"><div class="uwho"><b>${esc(u.display||u.name)}</b><span class="small">Benutzername: ${esc(u.name)}${u.admin?" · Admin":""}${u.name===me.name?" · das bist du":""}</span></div>
+      ${admin?`${personSelect(u.person,'data-person aria-label="Person"')}
+      <button class="btn" data-reset>Passwort neu</button>${u.name===me.name?"":`<button class="btn danger" data-del>Löschen</button>`}`:`<span class="small">${esc(u.person||"")}</span>`}</li>`).join("");
+  }
+  list.addEventListener("change",async e=>{
+    const li=e.target.closest("[data-u]");if(!li||e.target.dataset.person===undefined)return;
+    try{await OD.apiJson("PATCH","users/"+encodeURIComponent(li.dataset.u),{json:{person:e.target.value}});toast("Gespeichert");
+      if(li.dataset.u===me.name){me.person=e.target.value;renderAccount();}}catch(err){toast(err.message);}
+  });
+  list.addEventListener("click",async e=>{
+    const li=e.target.closest("[data-u]");if(!li)return;const name=li.dataset.u;
+    if(e.target.closest("[data-reset]")){
+      const b=e.target.closest("[data-reset]");
+      if(!b.dataset.armed){const pw=Math.random().toString(36).slice(2,6)+"-"+Math.random().toString(36).slice(2,6);b.dataset.armed=pw;b.textContent="Setzen auf "+pw+"?";return;}
+      try{await OD.apiJson("PATCH","users/"+encodeURIComponent(name),{json:{password:b.dataset.armed}});toast("Neues Passwort für "+name+": "+b.dataset.armed);b.textContent="Neu: "+b.dataset.armed;}catch(err){toast(err.message);}
+    }
+    if(e.target.closest("[data-del]")){
+      const b=e.target.closest("[data-del]");if(!b.dataset.armed){b.dataset.armed="1";b.textContent="Wirklich löschen?";return;}
+      try{await OD.apiJson("DELETE","users/"+encodeURIComponent(name));toast(name+" gelöscht");load();}catch(err){toast(err.message);}
+    }
+  });
+  if(admin)m.querySelector("[data-add]").onclick=async()=>{
+    const person=m.querySelector("#suPerson").value;
+    try{
+      const u=await OD.apiJson("POST","users",{json:{name:m.querySelector("#suName").value,password:m.querySelector("#suPw").value,display:person||m.querySelector("#suName").value,person,admin:m.querySelector("#suAdmin").checked}});
+      toast("„"+u.name+"“ angelegt");m.querySelector("#suName").value="";m.querySelector("#suPw").value="";load();
+    }catch(err){toast(err.message);}
+  };
+  m.querySelector("[data-pw]").onclick=async()=>{
+    try{await OD.apiJson("POST","me/password",{json:{old:m.querySelector("#pwOld").value,password:m.querySelector("#pwNew").value}});toast("Passwort geändert");m.querySelector("#pwOld").value="";m.querySelector("#pwNew").value="";}
+    catch(err){toast(err.message);}
   };
   load();
 }
@@ -764,8 +827,9 @@ await OD.init();
 renderAccount();renderNav();
 if(OD.signedIn){
   Sync.start();
-  Sync.discoverOwn().then(k=>{if(k){renderNav();toast(k+" Notizbuch/-bücher aus OneDrive geladen");}}).catch(e=>console.warn("discover",e));
+  Sync.discoverOwn().then(k=>{if(k){renderNav();toast(k+" Notizbuch/-bücher "+(SERVER?"vom Server":"aus OneDrive")+" geladen");}}).catch(e=>console.warn("discover",e));
 }
-openPendingShare();
+if(SERVER&&!OD.signedIn)ServerMode.showLogin();
+if(!SERVER)openPendingShare();
 if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js").catch(()=>{});
 })();
