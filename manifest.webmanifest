@@ -1,6 +1,6 @@
 {
-  "name": "Notizbuch",
-  "short_name": "Notizbuch",
+  "name": "Familienorganisation",
+  "short_name": "Familie",
   "description": "Notizbücher mit Text, Stift und Bildern, gespeichert in OneDrive.",
   "lang": "de",
   "start_url": "./",

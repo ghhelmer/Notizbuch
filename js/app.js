@@ -244,6 +244,14 @@ function closeSide(){$("#app").classList.remove("open");}
 $("#openSide").onclick=()=>$("#app").classList.add("open");
 $("#closeSide").onclick=closeSide;
 
+/* ---------- Kopfbereich ---------- */
+(function(){
+  const cfg=window.NOTIZBUCH_CONFIG||{};const title=cfg.titel||"Familienorganisation";
+  const cats=cfg.kategorien||[];const members=cfg.mitglieder||["Gerhard","Karin","Johannes","Anna"];
+  $("#famTitle").textContent=title;$("#mobTitle").textContent=title;document.title=title;
+  $("#famMembers").innerHTML=members.map(n=>{const c=(cats.find(k=>k.name===n)||{}).farbe||"#ffffff33";return `<span><i style="--c:${c}">${esc(n[0])}</i>${esc(n)}</span>`;}).join("");
+})();
+
 /* ---------- Konto und Status ---------- */
 function renderAccount(){
   const a=$("#account");

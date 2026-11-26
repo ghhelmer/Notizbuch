@@ -13,8 +13,9 @@ Eigene Notizbuch-App als Ersatz für OneNote. Läuft im Browser auf iPad, PC und
 - Liniertes, kariertes oder leeres Papier
 - Suche über alle Notizbücher
 - Seite als PDF speichern oder drucken
-- Wissenschaftlicher Taschenrechner (Grad/Bogenmaß, Ergebnis ins Blatt übernehmen)
-- Gemeinsamer Kalender: Termine gehören zu einem Notizbuch, alle, mit denen es geteilt ist, sehen und bearbeiten sie
+- Wissenschaftlicher Taschenrechner wie ein Schulrechner (SHIFT, Brüche, Speicher, DEG/RAD/GRA, Ergebnis ins Blatt übernehmen)
+- Gemeinsamer Kalender mit Tag-, Wochen- und Monatsansicht, Kategorien (in `config.js` einstellbar) und Beschreibung je Termin. Termine gehören zu einem Notizbuch, alle, mit denen es geteilt ist, sehen und bearbeiten sie
+- Überschrift und Familienmitglieder oben links stehen in `config.js` (`titel`, `mitglieder`)
 - Notizbuch oder einzelne Seite per QR-Code teilen
 - Speichern auf dem Gerät (funktioniert offline)
 - Mit Microsoft-Anmeldung: Notizbücher in OneDrive speichern, auf allen Geräten nutzen und mit anderen teilen

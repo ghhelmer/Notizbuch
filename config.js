@@ -4,5 +4,16 @@
 //             Muss zu den "Unterstützten Kontotypen" der Registrierung passen.
 window.NOTIZBUCH_CONFIG = {
   clientId: "42988758-709f-46d5-8a26-565aea5c1264",
-  authority: "consumers"
+  authority: "consumers",
+  // Überschrift oben links und Familienmitglieder (Kreise mit Anfangsbuchstaben)
+  titel: "Familienorganisation",
+  mitglieder: ["Gerhard", "Karin", "Johannes", "Anna"],
+  // Kategorien im Kalender (Name und Farbe). Reihenfolge = Reihenfolge in der App.
+  kategorien: [
+    { name: "Familie",  farbe: "#1f6f78" },
+    { name: "Gerhard",  farbe: "#4a7fc1" },
+    { name: "Karin",    farbe: "#c45a7a" },
+    { name: "Johannes", farbe: "#e8a33d" },
+    { name: "Anna",     farbe: "#8a6cc4" }
+  ]
 };
