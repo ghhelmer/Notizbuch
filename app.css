@@ -140,3 +140,17 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .modal .small{font-size:12px}
 .loading{position:absolute;left:40px;top:40px;color:#5d6d70;z-index:4}
 optgroup{font-weight:700}
+/* Drucken und PDF: nur das Blatt, auf A4-Breite verkleinert */
+@page{size:A4;margin:12mm}
+@media print{
+  html,body{height:auto!important;overflow:visible!important;background:#fff!important;color:#000}
+  .side,.tools,.toast,.pop,.modal-bg,.loading{display:none!important}
+  .app{display:block!important;height:auto!important}
+  .main,.pagewrap{display:block!important;overflow:visible!important;height:auto!important}
+  .titlebar{padding:0 0 6px!important;max-width:none}
+  .ptitle{border:0!important;color:#000!important;font-size:20px!important;padding:0!important}
+  .pmeta{color:#555!important;padding:2px 0 8px!important}
+  .sheet{margin:0!important;box-shadow:none!important;border-radius:0;zoom:var(--print-zoom,.5);width:var(--print-w,1400px)!important;height:var(--print-h,auto)!important;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .grip,.wgrip,.img .rz,.img .del{display:none!important}
+  .box,.img{border-color:transparent!important}
+}

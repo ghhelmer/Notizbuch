@@ -487,6 +487,23 @@ document.addEventListener("keydown",e=>{
   const a=document.activeElement;
   if((e.ctrlKey||e.metaKey)&&e.key==="z"&&!e.shiftKey&&!(a&&a.isContentEditable)&&!(a&&/INPUT|TEXTAREA/.test(a.tagName))){e.preventDefault();undo();}
 });
+/* ---------- PDF / Drucken ---------- */
+$("#pdfBtn").onclick=()=>{
+  const p=page(),c=pc();if(!p||!c){toast("Keine Seite geöffnet.");return;}
+  if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+  // Nur den beschriebenen Bereich drucken und auf A4-Breite verkleinern
+  let right=0;
+  c.boxes.forEach(b=>{right=Math.max(right,b.x+b.w);});
+  c.images.forEach(i=>{right=Math.max(right,i.x+i.w);});
+  c.strokes.forEach(s=>s.points.forEach(pt=>{right=Math.max(right,pt[0]+s.size*5);}));
+  const w=Math.min(SHEET_W,Math.max(700,right+40)),h=Math.max(200,contentBottom()+60);
+  const root=document.documentElement.style;
+  root.setProperty("--print-w",w+"px");root.setProperty("--print-h",h+"px");root.setProperty("--print-zoom",Math.min(1,718/w));
+  const old=document.title;document.title=(p.title||"Notizseite").replace(/[\\/:*?"<>|]/g,"-");
+  const restore=()=>{document.title=old;window.removeEventListener("afterprint",restore);};
+  window.addEventListener("afterprint",restore);
+  setTimeout(()=>{window.print();setTimeout(restore,1500);},50);
+};
 $("#bgBtn").onclick=()=>{const c=pc();if(!c)return;c.bg=c.bg==="lined"?"grid":c.bg==="grid"?"plain":"lined";touchPage();renderPage();toast({lined:"Liniertes Papier",grid:"Kariertes Papier",plain:"Leeres Papier"}[c.bg]);};
 
 /* ---------- Dialoge ---------- */
