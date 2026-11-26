@@ -33,7 +33,11 @@ und legt die eigene als Kopie „(meine Fassung …)“ daneben. Es geht nichts 
 
 Damit die Anmeldung funktioniert, braucht die App eine (kostenlose) Registrierung bei Microsoft:
 
-1. Öffne https://portal.azure.com und melde dich mit deinem Microsoft-Konto an.
+Microsoft verlangt dafür seit Juni 2024 ein Azure-Konto. Das kostenlose Konto reicht, es entsteht kein Abo.
+
+0. Öffne https://azure.microsoft.com/de-de/free/ und klicke auf „Kostenlos starten“. Melde dich mit deinem Microsoft-Konto an,
+   bestätige Telefonnummer und Kreditkarte (nur zur Identitätsprüfung, es wird nichts abgebucht, solange du nichts kaufst).
+1. Öffne https://portal.azure.com und melde dich mit demselben Konto an.
 2. Suche oben nach **„App-Registrierungen“** und klicke auf **„Neue Registrierung“**.
 3. Name: `Notizbuch`.
 4. Unterstützte Kontotypen: **„Konten in einem beliebigen Organisationsverzeichnis … und persönliche Microsoft-Konten“**.
