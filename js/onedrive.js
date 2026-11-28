@@ -115,7 +115,11 @@ const Sync={
     this.running=true;this.set("busy");
     try{
       for(const nb of Store.notebooks.filter(n=>n.source==="onedrive"&&!n.broken)){
-        try{await this.pull(nb);await this.push(nb);}
+        try{
+          await this.pull(nb);
+          try{const wrote=await this.push(nb);if(nb.readOnly&&wrote){nb.readOnly=false;Store.saveNotebooks();}}
+          catch(e){if(e.status===403)this.readOnly(nb);else throw e;}
+        }
         catch(e){
           if(e.status===404||e.status===403){nb.broken=e.status===404?"Nicht mehr in OneDrive gefunden":"Kein Zugriff mehr";Store.saveNotebooks();Store.refresh();}
           else throw e;
@@ -138,7 +142,11 @@ const Sync={
     if(idx.eTag!==d.indexEtag){
       const remote=await OD.download(idx);
       const ver=nb.indexVer;
-      const localNewer=Store.mergeIndex(nb,remote);
+      let localNewer;
+      if(nb.resetIndex){ // nur Leserecht: lokale Änderungen am Inhaltsverzeichnis/Kalender verwerfen
+        for(const kind of ["sections","pages","events","members"])nb[kind]=remote[kind]||[];
+        nb.name=remote.name||nb.name;nb.nameMod=remote.nameMod||0;nb.resetIndex=false;localNewer=false;
+      }else localNewer=Store.mergeIndex(nb,remote);
       d.indexEtag=idx.eTag;d.indexId=idx.id;
       if(localNewer)nb.indexDirty=true;else if(nb.indexVer===ver)nb.indexDirty=false;
       Store.saveNotebooks();Store.refresh();
@@ -164,7 +172,7 @@ const Sync={
   },
 
   async push(nb){
-    const d=nb.drive;
+    const d=nb.drive;let wrote=0;
     // 1. Seiteninhalte
     for(const [pid,rec] of [...Store.pages.entries()]){
       if(rec.nb!==nb.id||!rec.dirty)continue;
@@ -179,7 +187,7 @@ const Sync={
       if(r.status===404&&rec.fileId){rec.fileId=null;rec.etag=null;continue;}
       if(!r.ok)throw Object.assign(new Error("PUT page "+r.status),{status:r.status});
       const j=await r.json();
-      rec.etag=j.eTag;rec.fileId=j.id;rec.remoteChanged=false;
+      rec.etag=j.eTag;rec.fileId=j.id;rec.remoteChanged=false;wrote++;
       if(rec.ver===ver)rec.dirty=false;
       Store.savePage(pid);
     }
@@ -192,7 +200,7 @@ const Sync={
       else r=await OD.req("PUT",`/drives/${d.driveId}/items/${d.itemId}:/notebook.json:/content`,{body,headers:{"Content-Type":"application/json"}});
       if(r.status===412){d.indexEtag=null;this.again=true;}
       else if(!r.ok)throw Object.assign(new Error("PUT index "+r.status),{status:r.status});
-      else{const j=await r.json();d.indexEtag=j.eTag;d.indexId=j.id;if(nb.indexVer===ver)nb.indexDirty=false;Store.saveNotebooks();}
+      else{const j=await r.json();d.indexEtag=j.eTag;d.indexId=j.id;wrote++;if(nb.indexVer===ver)nb.indexDirty=false;Store.saveNotebooks();}
     }
     // 3. Gelöschte Seiten aus OneDrive entfernen (landen dort im Papierkorb)
     if(!nb.indexDirty){
@@ -202,6 +210,23 @@ const Sync={
         if(rec){Store.pages.delete(p.id);DB.del("page:"+p.id);}
       }
     }
+    return wrote;
+  },
+
+  readOnly(nb){
+    // Nur Leserecht auf den freigegebenen Ordner: eigene Änderungen verwerfen und die Fassung aus OneDrive wieder laden.
+    const was=nb.readOnly;nb.readOnly=true;
+    let lost=false;
+    for(const [pid,rec] of Store.pages){
+      if(rec.nb!==nb.id||!rec.dirty)continue;
+      lost=true;
+      if(rec.fileId){rec.dirty=false;rec.etag=null;rec.remoteChanged=false;Store.savePage(pid);}
+      else{Store.pages.delete(pid);DB.del("page:"+pid);}
+    }
+    if(nb.indexDirty){lost=true;nb.indexDirty=false;nb.drive.indexEtag=null;nb.resetIndex=true;}
+    Store.saveNotebooks();Store.refresh();
+    if(lost||!was)Store.toast("„"+nb.name+"“ darfst du nur ansehen. Änderungen werden nicht gespeichert.");
+    if(lost)this.again=true;
   },
 
   async conflict(nb,pid,rec){
@@ -248,25 +273,109 @@ const Sync={
     return added;
   },
   async listShared(){
-    const j=await OD.json("GET","/me/drive/sharedWithMe?$top=200");
-    return j.value.filter(i=>i.remoteItem&&i.remoteItem.folder).map(i=>({
-      name:i.remoteItem.name||i.name,driveId:i.remoteItem.parentReference.driveId,itemId:i.remoteItem.id,
-      owner:(i.remoteItem.shared&&i.remoteItem.shared.owner&&i.remoteItem.shared.owner.user&&i.remoteItem.shared.owner.user.displayName)||""
-    }));
+    // Quellen: 1. von dir schon geöffnete Freigaben (freigaben.json in deinem OneDrive),
+    // 2. Verknüpfungen, die du in OneDrive über „Zu ‚Meine Dateien‘ hinzufügen“ angelegt hast,
+    // 3. die Liste „Für mich freigegeben“ (Microsoft stellt sie gerade ein, liefert oft nichts mehr).
+    const out=[];const seen=new Set();
+    const add=x=>{if(!x.driveId||!x.itemId||seen.has(x.driveId+"|"+x.itemId))return;seen.add(x.driveId+"|"+x.itemId);out.push(x);};
+    const fromRemote=i=>({name:i.remoteItem.name||i.name,driveId:i.remoteItem.parentReference&&i.remoteItem.parentReference.driveId,itemId:i.remoteItem.id,
+      owner:(i.remoteItem.shared&&i.remoteItem.shared.owner&&i.remoteItem.shared.owner.user&&i.remoteItem.shared.owner.user.displayName)||""});
+    try{(await this.loadShares()).items.forEach(add);}catch(e){console.warn("freigaben.json",e);}
+    try{
+      let url="/me/drive/root/children?$top=999";
+      while(url){const j=await OD.json("GET",url);j.value.filter(i=>i.remoteItem&&i.remoteItem.folder).forEach(i=>add(fromRemote(i)));url=j["@odata.nextLink"];}
+    }catch(e){console.warn("Verknüpfungen",e);}
+    try{
+      let url="/me/drive/sharedWithMe?allowexternal=true&$top=200";let guard=0;
+      while(url&&guard++<20){const j=await OD.json("GET",url);(j.value||[]).filter(i=>i.remoteItem&&i.remoteItem.folder).forEach(i=>add(fromRemote(i)));url=j["@odata.nextLink"];}
+    }catch(e){console.warn("sharedWithMe",e);}
+    return out;
+  },
+  /* Liste der geöffneten Freigaben in deinem eigenen OneDrive, damit deine anderen Geräte sie automatisch finden. */
+  async loadShares(){
+    const root=await OD.rootFolder();const driveId=root.parentReference.driveId;
+    const f=await OD.childByName(driveId,root.id,"freigaben.json");
+    let data={format:1,items:[]};
+    if(f){try{const d=await OD.download(f);if(d&&Array.isArray(d.items))data=d;}catch(e){console.warn(e);}}
+    return Object.assign(data,{_driveId:driveId,_rootId:root.id,_file:f});
+  },
+  async editShares(fn){
+    for(let attempt=0;attempt<3;attempt++){
+      const data=await this.loadShares();
+      const before=JSON.stringify(data.items);
+      fn(data.items);
+      if(JSON.stringify(data.items)===before)return;
+      const body=JSON.stringify({format:1,items:data.items});
+      const r=data._file
+        ?await OD.req("PUT",`/drives/${data._driveId}/items/${data._file.id}/content`,{body,headers:{"Content-Type":"application/json","If-Match":data._file.eTag}})
+        :await OD.req("PUT",`/drives/${data._driveId}/items/${data._rootId}:/freigaben.json:/content?@microsoft.graph.conflictBehavior=fail`,{body,headers:{"Content-Type":"application/json"}});
+      if(r.status===412||r.status===409)continue;
+      if(!r.ok)throw Object.assign(new Error("PUT freigaben "+r.status),{status:r.status});
+      return;
+    }
+  },
+  rememberShare(ref){
+    return this.editShares(items=>{
+      if(items.some(x=>x.driveId===ref.driveId&&x.itemId===ref.itemId))return;
+      items.push({driveId:ref.driveId,itemId:ref.itemId,name:ref.name||"",owner:ref.owner||"",added:new Date().toISOString()});
+    }).catch(e=>console.warn("Freigabe merken",e));
+  },
+  forgetShare(nb){
+    const d=nb.drive||{};
+    return this.editShares(items=>{
+      for(let i=items.length-1;i>=0;i--)if(items[i].driveId===d.driveId&&(items[i].itemId===d.itemId||items[i].itemId===d.shareRoot))items.splice(i,1);
+    }).catch(e=>console.warn("Freigabe vergessen",e));
+  },
+  async discoverShared(){
+    const list=await this.listShared();
+    let added=0;
+    for(const ref of list){
+      const r=await this.attach(ref,false,true).catch(e=>{console.warn("Freigabe",ref.name,e);return false;});
+      if(typeof r==="number")added+=r;else if(r===true)added++;
+    }
+    return added;
   },
   async resolveLink(url){
     const b64=btoa(unescape(encodeURIComponent(url.trim()))).replace(/=+$/,"").replace(/\//g,"_").replace(/\+/g,"-");
     const it=await OD.json("GET",`/shares/u!${b64}/driveItem`);
     return {driveId:it.parentReference.driveId,itemId:it.id,name:it.name};
   },
-  async attach(ref,own){
+  /* Freigegebenen Ordner einbinden. Liegt darin kein notebook.json, werden die Unterordner durchsucht
+     (so kann man auch den ganzen Ordner „Notizbuch“ mit allen Notizbüchern auf einmal teilen).
+     Rückgabe: true (neu), "exists" (schon da), false (kein Notizbuch) oder bei Sammelordnern die Zahl neuer Notizbücher. */
+  async attach(ref,own,quiet){
+    const knownByItem=id=>Store.notebooks.find(n=>n.drive&&n.drive.driveId===ref.driveId&&n.drive.itemId===id);
+    const k=knownByItem(ref.itemId);
+    if(k){this.lastAttached=k;return "exists";}
     const idx=await OD.childByName(ref.driveId,ref.itemId,"notebook.json");
+    if(!idx){
+      if(own)return false;
+      const subs=(await OD.children(ref.driveId,ref.itemId)).filter(c=>c.folder&&c.name!=="pages");
+      let added=0,found=0,first=null;
+      for(const c of subs){
+        const kk=knownByItem(c.id);
+        if(kk){found++;first=first||kk;continue;}
+        const r=await this.attachOne({driveId:ref.driveId,itemId:c.id,name:c.name,owner:ref.owner,shareRoot:ref.itemId},false);
+        if(r===true){added++;found++;first=first||this.lastAttached;}
+        else if(r==="exists"){found++;first=first||this.lastAttached;}
+      }
+      if(!found)return false;
+      this.lastAttached=first;
+      if(!quiet||added)this.rememberShare(ref);
+      return added?added:"exists";
+    }
+    const r=await this.attachOne(ref,own,idx);
+    if(!own&&r)this.rememberShare(ref);
+    return r;
+  },
+  async attachOne(ref,own,idx){
+    idx=idx||await OD.childByName(ref.driveId,ref.itemId,"notebook.json");
     if(!idx)return false;
     const remote=await OD.download(idx);
     const known=Store.notebooks.find(n=>n.id===remote.id);
     if(known){this.lastAttached=known;return "exists";}
     const nb={id:remote.id||Store.uid(),name:remote.name||ref.name,nameMod:0,sections:[],pages:[],source:"onedrive",own:!!own,owner:ref.owner||"",
-      drive:{driveId:ref.driveId,itemId:ref.itemId,pagesId:null,indexEtag:null,indexId:null},indexDirty:false,indexVer:0};
+      drive:{driveId:ref.driveId,itemId:ref.itemId,shareRoot:ref.shareRoot||null,pagesId:null,indexEtag:null,indexId:null},indexDirty:false,indexVer:0};
     Store.notebooks.push(nb);Store.saveNotebooks();this.lastAttached=nb;
     await this.pull(nb);
     return true;
@@ -274,7 +383,7 @@ const Sync={
   async invite(nb,email,role){
     return OD.json("POST",`/drives/${nb.drive.driveId}/items/${nb.drive.itemId}/invite`,{json:{
       recipients:[{email}],requireSignIn:true,sendInvitation:true,roles:[role==="read"?"read":"write"],
-      message:"Ich habe ein Notizbuch mit dir geteilt. Öffne es in der App unter „Freigegebenes Notizbuch öffnen“: "+location.origin+location.pathname
+      message:"Ich habe ein Notizbuch mit dir geteilt. So öffnest du es: 1. Den Link „Öffnen“ in dieser E-Mail kopieren (lange drücken bzw. Rechtsklick, „Link kopieren“). 2. Die App öffnen: "+location.origin+location.pathname+" 3. Mit deinem Microsoft-Konto anmelden, oben im Notizbuch-Menü „+ Freigegebenes Notizbuch öffnen“ wählen, Link einfügen. Danach findet die App es auf all deinen Geräten von selbst."
     }});
   },
   async permissions(nb){

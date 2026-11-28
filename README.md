@@ -28,8 +28,16 @@ OneDrive/Notizbuch/<Name des Notizbuchs>/
   pages/<id>.json      eine Datei pro Seite
 ```
 
-Geteilt wird der Ordner eines Notizbuchs über die normale OneDrive-Freigabe (in der App: Notizbuch-Menü ⋯ → „Teilen…“).
-Andere öffnen ihn in der App über „+ Freigegebenes Notizbuch öffnen“.
+Geteilt wird der Ordner eines Notizbuchs über die normale OneDrive-Freigabe (in der App: Notizbuch-Menü ⋯ → „Teilen…“,
+oder auf onedrive.live.com). Man kann auch den ganzen Ordner `Notizbuch` teilen, dann bekommen die anderen alle Notizbücher darin.
+
+Andere öffnen die Freigabe **einmal** in der App über „+ Freigegebenes Notizbuch öffnen“ (Link aus der Einladungs-E-Mail einfügen)
+oder per QR-Code. Die App merkt sich das in deren eigenem OneDrive (`Notizbuch/freigaben.json`), sodass sie das Notizbuch
+auf allen weiteren Geräten derselben Person von selbst findet. Microsofts Liste „Für mich freigegeben“ (Graph `sharedWithMe`)
+wurde im November 2026 abgeschaltet und wird nur noch als Zusatz abgefragt.
+
+Rechte: OneDrive kennt pro geteiltem Ordner nur „Bearbeiten“ oder „Anzeigen“. Mit „Anzeigen“ zeigt die App „Nur ansehen“
+und verwirft eigene Änderungen. Feinere Rechte (z. B. nur eigene Termine) gibt OneDrive nicht her.
 
 Ändern zwei Personen gleichzeitig dieselbe Seite, übernimmt die App die Fassung, die zuerst in OneDrive war,
 und legt die eigene als Kopie „(meine Fassung …)“ daneben. Es geht nichts verloren.
@@ -66,6 +74,7 @@ Der Test simuliert OneDrive und zwei Personen, die dasselbe Notizbuch bearbeiten
 ```
 python3 -m http.server 8765 &
 node tests/sync.test.js
+node tests/share.test.js   # Freigabe per Link, zweites Gerät, ganzer Ordner, Nur-Lesen
 ```
 
 ## Eigener Familien-Server (ohne Microsoft-Konten)

@@ -216,6 +216,7 @@ $("#nbmore").onclick=e=>{
 function removeNotebook(n){
   if(Store.notebooks.length===1&&n.source!=="onedrive"){toast("Das letzte Notizbuch kann nicht gelöscht werden.");return;}
   Store.notebooks=Store.notebooks.filter(x=>x!==n);
+  if(n.source==="onedrive"&&!n.own&&!SERVER&&OD.signedIn)Sync.forgetShare(n);
   for(const [pid,r] of [...Store.pages])if(r.nb===n.id){Store.pages.delete(pid);DB.del("page:"+pid);}
   if(!Store.notebooks.length)Store.notebooks.push(sampleNotebook());
   Store.saveNotebooks();go(Store.notebooks[0].id,null,null);renderAll();
@@ -273,6 +274,7 @@ function updateStatus(){
   el.className="status";
   if(!n||n.source!=="onedrive"){t.textContent="Nur auf diesem Gerät gespeichert";return;}
   if(n.broken){el.classList.add("err");t.textContent=n.broken;return;}
+  if(n.readOnly&&!SERVER){el.classList.add("busy");t.textContent="Nur ansehen"+(n.owner?" (von "+n.owner+")":"")+", Änderungen werden nicht gespeichert";return;}
   if(!OD.signedIn){el.classList.add("err");t.textContent="Zum Abgleichen anmelden";return;}
   const st=Sync.state;
   if(st==="offline"){el.classList.add("busy");t.textContent="Offline, Änderungen werden später hochgeladen";return;}
@@ -570,13 +572,14 @@ function newNotebookDialog(){
 }
 async function sharedDialog(){
   const m=modal(`<h3>Freigegebenes Notizbuch öffnen</h3>
-    <p>Notizbücher, die andere mit dir geteilt haben:</p><ul id="shList"><li class="small">Wird geladen…</li></ul>
-    <label>Oder Freigabe-Link einfügen<input type="url" id="shLink" placeholder="https://1drv.ms/…"></label>
+    <p>Freigaben, die die App schon kennt:</p><ul id="shList"><li class="small">Wird gesucht…</li></ul>
+    <label>Freigabe-Link aus der Einladungs-E-Mail einfügen<input type="url" id="shLink" placeholder="https://1drv.ms/…"></label>
+    <p class="small">Einmal pro Person reicht: Danach findet die App das Notizbuch auf allen Geräten, auf denen du mit demselben Microsoft-Konto angemeldet bist.</p>
     <div class="row"><button class="btn" data-x>Schließen</button><button class="btn pri" data-link>Link öffnen</button></div>`);
   const open=async ref=>{
     try{const r=await Sync.attach(ref,false);
-      if(r===true){const n=Store.notebooks[Store.notebooks.length-1];go(n.id,null,null);m.remove();renderAll();toast("Notizbuch geöffnet");}
-      else if(r==="exists")toast("Dieses Notizbuch ist schon in deiner Liste.");
+      if(r===true||typeof r==="number"){const n=Sync.lastAttached;go(n.id,null,null);m.remove();renderAll();toast(typeof r==="number"&&r>1?r+" Notizbücher geöffnet":"Notizbuch geöffnet");}
+      else if(r==="exists"){toast("Dieses Notizbuch ist schon in deiner Liste.");if(Sync.lastAttached){go(Sync.lastAttached.id,null,null);m.remove();renderAll();}}
       else toast("In diesem Ordner liegt kein Notizbuch.");
     }catch(err){console.error(err);toast("Öffnen fehlgeschlagen ("+(err.status||err.message)+")");}
   };
@@ -587,13 +590,13 @@ async function sharedDialog(){
   try{
     const list=await Sync.listShared();
     const ul=m.querySelector("#shList");
-    ul.innerHTML=list.length?list.map((x,i)=>`<li><button data-i="${i}">${esc(x.name)}${x.owner?` <span class="small">von ${esc(x.owner)}</span>`:""}</button></li>`).join(""):`<li class="small">Keine freigegebenen Ordner gefunden. Nutze den Link aus der Einladungs-E-Mail.</li>`;
+    ul.innerHTML=list.length?list.map((x,i)=>`<li><button data-i="${i}">${esc(x.name)}${x.owner?` <span class="small">von ${esc(x.owner)}</span>`:""}</button></li>`).join(""):`<li class="small">Noch keine gefunden. Microsoft zeigt „Für mich freigegeben“ nicht mehr zuverlässig an. Füge unten den Link aus der Einladungs-E-Mail ein oder scanne den QR-Code der Person, die geteilt hat.</li>`;
     ul.onclick=e=>{const b=e.target.closest("[data-i]");if(b)open(list[+b.dataset.i]);};
   }catch(err){console.error(err);m.querySelector("#shList").innerHTML=`<li class="small">Liste nicht abrufbar. Nutze den Link aus der Einladungs-E-Mail.</li>`;}
 }
 function shareDialog(n){
   const m=modal(`<h3>„${esc(n.name)}“ teilen</h3>
-    <p>Die eingeladene Person bekommt eine E-Mail von Microsoft und kann das Notizbuch in dieser App unter „Freigegebenes Notizbuch öffnen“ hinzufügen und mitbearbeiten.</p>
+    <p>Die eingeladene Person bekommt eine E-Mail von Microsoft mit einem Link. Den fügt sie einmal in der App unter „+ Freigegebenes Notizbuch öffnen“ ein. Am schnellsten geht es mit dem QR-Code: Die andere Person scannt ihn mit dem Handy.</p>
     <label>E-Mail-Adresse (Microsoft-Konto)<input type="email" id="shMail" placeholder="name@outlook.de"></label>
     <div class="row"><button class="btn" data-qr>QR-Code</button><button class="btn" data-copy>Link kopieren</button><button class="btn" data-x>Schließen</button><button class="btn pri" data-inv>Einladen</button></div>`);
   m.querySelector("[data-qr]").onclick=()=>{m.remove();qrDialog(n,null);};
@@ -827,7 +830,10 @@ await OD.init();
 renderAccount();renderNav();
 if(OD.signedIn){
   Sync.start();
-  Sync.discoverOwn().then(k=>{if(k){renderNav();toast(k+" Notizbuch/-bücher "+(SERVER?"vom Server":"aus OneDrive")+" geladen");}}).catch(e=>console.warn("discover",e));
+  Sync.discoverOwn().then(async k=>{
+    if(!SERVER)k+=await Sync.discoverShared().catch(e=>{console.warn("discover shared",e);return 0;});
+    if(k){renderNav();toast(k+" Notizbuch/-bücher "+(SERVER?"vom Server":"aus OneDrive")+" geladen");}
+  }).catch(e=>console.warn("discover",e));
 }
 if(SERVER&&!OD.signedIn)ServerMode.showLogin();
 if(!SERVER)openPendingShare();

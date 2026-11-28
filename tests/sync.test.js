@@ -16,6 +16,7 @@ async function graph(route){
   log.push(m+' '+path);
   if(path==='/me/drive')return send(200,{id:D});
   if(path==='/me/drive/root')return send(200,view(roots[req.headers()['authorization'].split(' ')[1]]));
+  if(path==='/me/drive/root/children')return send(200,{value:[]});
   if(path==='/me/drive/sharedWithMe')return send(200,{value:kids(kids(root.id).find(i=>i.name==='Notizbuch')?.id||'x').map(i=>({name:i.name,remoteItem:{id:i.id,name:i.name,folder:{},parentReference:{driveId:D},shared:{owner:{user:{displayName:'Anna'}}}}}))});
   let mm;
   if(mm=path.match(/^\/drives\/D1\/items\/([^/:]+):\/([^:]+):\/content$/)){ // PUT by path
