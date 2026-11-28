@@ -1,0 +1,4 @@
+# Windows-Dateien unverändert mit Windows-Zeilenenden speichern, damit sie per Doppelklick funktionieren
+*.bat -text
+*.cmd -text
+*.ps1 -text

@@ -68,6 +68,12 @@ python3 -m http.server 8765 &
 node tests/sync.test.js
 ```
 
+## Auf dem eigenen Windows-PC
+
+Der Familien-Server läuft auch auf einem normalen Windows-PC zu Hause, per Doppelklick und ohne Fachwissen.
+Alles steht im Ordner `windows/`, die Schritt-für-Schritt-Anleitung in [windows/ANLEITUNG.md](windows/ANLEITUNG.md):
+Installation, Autostart, Zugriff im WLAN, Zugriff von unterwegs mit Tailscale und tägliche Sicherung.
+
 ## Eigener Familien-Server (ohne Microsoft-Konten)
 
 Statt OneDrive kann die App auf einem eigenen kleinen Server laufen (z. B. Hetzner Cloud, Ubuntu 24.04).
@@ -84,4 +90,4 @@ und fragt am Ende nach dem Admin-Zugang. Weitere Skripte:
 
 - `server/storagebox.sh` – Hetzner Storage Box als großen Speicher einbinden
 - `server/update.sh` – auf die neueste Version aktualisieren
-- `node server/server.js liste | passwort NAME PW | benutzer-anlegen NAME PW | admin-anlegen NAME PW` (mit `DATA_DIR=…`)
+- `node server/server.js einrichten | liste | passwort [NAME [PW]] | benutzer-anlegen NAME PW | admin-anlegen NAME PW | sicherung` (mit `DATA_DIR=…`, für `sicherung` zusätzlich `BACKUP_DIR=…`)
