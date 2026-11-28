@@ -1,6 +1,6 @@
 /* Test des Familien-Servers: zwei Personen, Anmeldung, Notizbuch, Abgleich, Benutzerverwaltung.
    Vorher: DATA_DIR=/tmp/x node server/server.js admin-anlegen gerhard geheim123
-           INSECURE_COOKIE=1 PORT=8090 DATA_DIR=/tmp/x node server/server.js */
+           PORT=8090 DATA_DIR=/tmp/x node server/server.js */
 const {chromium}=require('playwright');
 const URL='http://localhost:8090/';
 (async()=>{

@@ -3,9 +3,14 @@
    Ohne zusätzliche Pakete, nur Node.js (ab Version 18).
 
    Umgebungsvariablen:
-     PORT      (Standard 8080, nur lokal erreichbar; nach außen macht Caddy https)
-     DATA_DIR  (Standard ./data) Ort für Benutzer, Sitzungen und Notizbücher
-     APP_DIR   (Standard ..)     Ordner mit index.html der App
+     PORT        (Standard 8080)
+     HOST        (Standard 127.0.0.1 = nur lokal, dann macht Caddy https;
+                  0.0.0.0 = im ganzen Heimnetz erreichbar, z. B. auf dem eigenen Windows-PC)
+     DATA_DIR    (Standard ./data) Ort für Benutzer, Sitzungen und Notizbücher
+     APP_DIR     (Standard ..)     Ordner mit index.html der App
+     BACKUP_DIR  (optional) Ordner für die automatische tägliche Sicherung
+     BACKUP_KEEP (Standard 30) so viele tägliche Sicherungen bleiben erhalten
+     INSECURE_COOKIE=1  Anmelde-Cookie nie als „Secure“ markieren (nur für Tests)
 
    Ablage:
      DATA_DIR/users.json
@@ -14,7 +19,7 @@
      DATA_DIR/notebooks/<id>/pages/<seiten-id>.json
 */
 "use strict";
-const http=require("http"),fs=require("fs"),fsp=fs.promises,path=require("path"),crypto=require("crypto");
+const http=require("http"),fs=require("fs"),fsp=fs.promises,path=require("path"),crypto=require("crypto"),os=require("os");
 
 const PORT=+process.env.PORT||8080;
 const HOST=process.env.HOST||"127.0.0.1";
@@ -23,6 +28,8 @@ const APP=path.resolve(process.env.APP_DIR||path.join(__dirname,".."));
 const MAX_BODY=40*1024*1024;            // 40 MB pro Seite (Bilder sind eingebettet)
 const SESSION_DAYS=60;
 const SECURE_COOKIE=process.env.INSECURE_COOKIE!=="1";
+const BACKUP=process.env.BACKUP_DIR?path.resolve(process.env.BACKUP_DIR):"";
+const BACKUP_KEEP=Math.max(1,+process.env.BACKUP_KEEP||30);
 
 /* ---------- Hilfen ---------- */
 const ID_RE=/^[A-Za-z0-9_-]{4,64}$/;
@@ -31,7 +38,12 @@ async function readJson(file,fallback){try{return JSON.parse(await fsp.readFile(
 async function writeAtomic(file,data){
   await fsp.mkdir(path.dirname(file),{recursive:true});
   const tmp=file+".tmp-"+process.pid+"-"+Date.now();
-  await fsp.writeFile(tmp,data);await fsp.rename(tmp,file);
+  await fsp.writeFile(tmp,data);
+  /* Unter Windows kann Umbenennen kurz scheitern, wenn z. B. der Virenscanner die Datei gerade prüft */
+  for(let i=0;;i++){
+    try{await fsp.rename(tmp,file);return;}
+    catch(e){if(i>=8||!["EPERM","EBUSY","EACCES"].includes(e.code)){await fsp.rm(tmp,{force:true});throw e;}await new Promise(r=>setTimeout(r,60*(i+1)));}
+  }
 }
 function hashPassword(pw,salt){salt=salt||crypto.randomBytes(16).toString("hex");return {salt,hash:crypto.scryptSync(String(pw),salt,64).toString("hex")};}
 function checkPassword(pw,u){if(!u||!u.salt)return false;const h=crypto.scryptSync(String(pw),u.salt,64);const ref=Buffer.from(u.hash,"hex");return ref.length===h.length&&crypto.timingSafeEqual(h,ref);}
@@ -81,7 +93,12 @@ function currentUser(req){
   if(s.exp-Date.now()<(SESSION_DAYS-1)*864e5){s.exp=Date.now()+SESSION_DAYS*864e5;saveSessions();}
   return u;
 }
-const cookieStr=(v,maxAge)=>`nb_sid=${v}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${SECURE_COOKIE?"; Secure":""}`;
+/* Absender: Angaben eines vorgeschalteten Programms (Caddy, Tailscale) nur glauben, wenn es auf demselben Rechner läuft */
+const isLocal=req=>/^(127\.|::1$|::ffff:127\.)/.test(req.socket.remoteAddress||"");
+const clientIp=req=>(isLocal(req)&&(req.headers["x-forwarded-for"]||"").split(",")[0].trim())||req.socket.remoteAddress;
+/* „Secure“ nur bei https, sonst schickt der Browser das Cookie im Heimnetz (http) nicht zurück */
+const isHttps=req=>!!req.socket.encrypted||(isLocal(req)&&req.headers["x-forwarded-proto"]==="https");
+const cookieStr=(req,v,maxAge)=>`nb_sid=${v}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${SECURE_COOKIE&&isHttps(req)?"; Secure":""}`;
 
 /* ---------- Notizbücher ---------- */
 const NB=path.join(DATA,"notebooks");
@@ -130,7 +147,7 @@ const TYPES={".html":"text/html; charset=utf-8",".js":"text/javascript; charset=
 async function serveStatic(req,res,url){
   let rel=decodeURIComponent(url.pathname);if(rel.endsWith("/"))rel+="index.html";
   const file=path.join(APP,path.normalize(rel).replace(/^(\.\.[\/\\])+/,""));
-  if(!file.startsWith(APP+path.sep)||/[\/\\](server|tests|\.git)[\/\\]/.test(file.slice(APP.length)))return send(res,404,"Nicht gefunden");
+  if(!file.startsWith(APP+path.sep)||/[\/\\](server|tests|windows|\.git)[\/\\]/.test(file.slice(APP.length)))return send(res,404,"Nicht gefunden");
   let buf;try{buf=await fsp.readFile(file);}catch(e){return send(res,404,"Nicht gefunden");}
   const tag=etagOf(buf);
   if(req.headers["if-none-match"]===tag){res.writeHead(304,{ETag:tag});return res.end();}
@@ -142,7 +159,7 @@ async function serveStatic(req,res,url){
 async function handle(req,res){
   const url=new URL(req.url,"http://x");const p=url.pathname;const m=req.method;
   if(!p.startsWith("/api/"))return m==="GET"||m==="HEAD"?serveStatic(req,res,url):send(res,405,"");
-  const ip=(req.headers["x-forwarded-for"]||"").split(",")[0].trim()||req.socket.remoteAddress;
+  const ip=clientIp(req);
 
   if(p==="/api/status"&&m==="GET")return send(res,200,{server:true,setup:users.length===0});
   if(p==="/api/login"&&m==="POST"){
@@ -151,9 +168,9 @@ async function handle(req,res){
     if(!checkPassword(b.password,u)){failed(ip);throw httpErr(401,"Benutzername oder Passwort falsch");}
     fails.delete(ip);
     const sid=crypto.randomBytes(32).toString("hex");sessions[sid]={user:u.name,exp:Date.now()+SESSION_DAYS*864e5};saveSessions();
-    return send(res,200,publicUser(u),{"Set-Cookie":cookieStr(sid,SESSION_DAYS*86400)});
+    return send(res,200,publicUser(u),{"Set-Cookie":cookieStr(req,sid,SESSION_DAYS*86400)});
   }
-  if(p==="/api/logout"&&m==="POST"){const sid=cookies(req).nb_sid;if(sid){delete sessions[sid];saveSessions();}return send(res,200,{ok:true},{"Set-Cookie":cookieStr("",0)});}
+  if(p==="/api/logout"&&m==="POST"){const sid=cookies(req).nb_sid;if(sid){delete sessions[sid];saveSessions();}return send(res,200,{ok:true},{"Set-Cookie":cookieStr(req,"",0)});}
 
   // Ab hier nur mit Anmeldung. Schutz gegen fremde Webseiten: Schreibzugriffe nur mit eigenem Kopf
   const me=currentUser(req);if(!me)throw httpErr(401,"Bitte anmelden");
@@ -220,27 +237,131 @@ async function handle(req,res){
   throw httpErr(404,"Unbekannte Adresse");
 }
 
-/* ---------- Kommandozeile: Admin anlegen, Passwort zurücksetzen ---------- */
+/* ---------- Automatische Sicherung ----------
+   Einmal am Tag eine vollständige Kopie von DATA_DIR nach BACKUP_DIR/Notizbuch-JJJJ-MM-TT.
+   Die ältesten werden gelöscht, sobald es mehr als BACKUP_KEEP sind. */
+const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
+async function backupNow(force){
+  if(!BACKUP)throw new Error("Kein Sicherungsordner eingestellt (BACKUP_DIR).");
+  await fsp.mkdir(DATA,{recursive:true});
+  const rel=path.relative(DATA,BACKUP);
+  if(!rel||(!rel.startsWith("..")&&!path.isAbsolute(rel)))throw new Error("Der Sicherungsordner darf nicht im Datenordner liegen.");
+  await fsp.mkdir(BACKUP,{recursive:true});
+  const target=path.join(BACKUP,"Notizbuch-"+today());
+  if(await exists(target)){if(!force)return null;await fsp.rm(target,{recursive:true,force:true});}
+  const tmp=target+".unfertig";
+  await fsp.rm(tmp,{recursive:true,force:true});
+  await fsp.cp(DATA,tmp,{recursive:true,filter:src=>{const b=path.basename(src);return b!=="sessions.json"&&!b.includes(".tmp-")&&!b.endsWith(".log");}});
+  await fsp.rename(tmp,target);
+  const old=(await fsp.readdir(BACKUP)).filter(n=>/^Notizbuch-\d{4}-\d\d-\d\d$/.test(n)).sort();
+  for(const n of old.slice(0,Math.max(0,old.length-BACKUP_KEEP)))await fsp.rm(path.join(BACKUP,n),{recursive:true,force:true});
+  return target;
+}
+function startBackups(){
+  if(!BACKUP)return;
+  const run=()=>backupNow(false).then(t=>{if(t)console.log(new Date().toLocaleString("de-DE")+"  Sicherung erstellt: "+t);}).catch(e=>console.error("Sicherung fehlgeschlagen: "+e.message));
+  setTimeout(run,5000);setInterval(run,60*60e3).unref();   // stündlich prüfen, ob die heutige schon da ist
+}
+
+/* ---------- Adressen im Heimnetz anzeigen ---------- */
+function lanAddresses(){
+  const out=[];
+  for(const list of Object.values(os.networkInterfaces()))for(const a of list||[]){
+    if(a.family!=="IPv4"&&a.family!==4||a.internal)continue;
+    out.push(a.address);
+  }
+  return out;
+}
+
+/* ---------- Kommandozeile: Ersteinrichtung, Admin anlegen, Passwort zurücksetzen, Sicherung ---------- */
+/* Fragt im Fenster nach einer Eingabe; bei Passwörtern wird nichts angezeigt */
+let pipedLines=null;
+function ask(question,hidden){
+  const stdin=process.stdin;
+  if(!stdin.isTTY){   /* Eingaben aus einer Datei oder Pipe: alle Zeilen über einen gemeinsamen Leser */
+    if(!pipedLines){const rl=require("readline").createInterface({input:stdin});const it=rl[Symbol.asyncIterator]();pipedLines=()=>it.next();}
+    process.stdout.write(question);
+    return pipedLines().then(r=>{process.stdout.write("\n");if(r.done){console.error("Keine Eingabe mehr.");process.exit(1);}return r.value.trim();});
+  }
+  return new Promise(resolve=>{
+    if(!hidden){
+      const rl=require("readline").createInterface({input:stdin,output:process.stdout});
+      rl.question(question,a=>{rl.close();resolve(a.trim());});return;
+    }
+    process.stdout.write(question);let val="";
+    stdin.setRawMode(true);stdin.resume();stdin.setEncoding("utf8");
+    const onData=ch=>{
+      for(const c of ch){
+        if(c==="\r"||c==="\n"){stdin.setRawMode(false);stdin.pause();stdin.removeListener("data",onData);process.stdout.write("\n");return resolve(val);}
+        if(c==="\u0003"){process.stdout.write("\n");process.exit(1);}
+        if(c==="\u007f"||c==="\b"){if(val){val=val.slice(0,-1);}continue;}
+        val+=c;
+      }
+    };
+    stdin.on("data",onData);
+  });
+}
+async function askNewPassword(){
+  for(;;){
+    const a=await ask("Passwort (mind. 6 Zeichen, wird nicht angezeigt): ",true);
+    if(a.length<6){console.log("Zu kurz, bitte noch einmal.");continue;}
+    const b=await ask("Passwort wiederholen: ",true);
+    if(a!==b){console.log("Die beiden Eingaben sind verschieden, bitte noch einmal.");continue;}
+    return a;
+  }
+}
 async function cli(args){
   await loadState();
   const [cmd,name,pw]=args;
+  if(cmd==="einrichten"){
+    if(users.length){console.log("Es gibt schon Benutzer, die Ersteinrichtung ist erledigt.");return;}
+    console.log("\nErsteinrichtung: Lege jetzt deinen eigenen Zugang an (Admin).");
+    console.log("Mit diesem Zugang kannst du später in der App die anderen Familienmitglieder anlegen.\n");
+    for(;;){
+      const n=await ask("Benutzername (z. B. gerhard): ");
+      const p=await askNewPassword();
+      try{const u=await createUser({name:n,password:p,display:n.charAt(0).toUpperCase()+n.slice(1),admin:true});console.log("\nFertig: Admin „"+u.name+"“ ist angelegt.\n");return;}
+      catch(e){console.log(e.message+"\n");}
+    }
+  }
   if(cmd==="admin-anlegen"||cmd==="benutzer-anlegen"){
     const u=await createUser({name,password:pw,display:args[3]||name,admin:cmd==="admin-anlegen"});
     console.log((u.admin?"Admin":"Benutzer")+" „"+u.name+"“ angelegt.");return;
   }
-  if(cmd==="passwort"){const u=findUser(name);if(!u){console.error("Unbekannter Benutzer");process.exit(1);}Object.assign(u,hashPassword(pw));await saveUsers();console.log("Passwort geändert.");return;}
+  if(cmd==="passwort"){
+    const n=name||await ask("Benutzername: ");
+    const u=findUser(n);if(!u){console.error("Unbekannter Benutzer. Vorhanden: "+users.map(x=>x.name).join(", "));process.exit(1);}
+    Object.assign(u,hashPassword(pw||await askNewPassword()));await saveUsers();console.log("Passwort für „"+u.name+"“ geändert.");return;
+  }
   if(cmd==="liste"){users.forEach(u=>console.log(u.name+(u.admin?" (Admin)":"")));return;}
-  console.log("Befehle: admin-anlegen NAME PASSWORT | benutzer-anlegen NAME PASSWORT | passwort NAME NEUES-PASSWORT | liste");
+  if(cmd==="sicherung"){const t=await backupNow(true);console.log("Sicherung erstellt: "+t);return;}
+  console.log("Befehle: einrichten | admin-anlegen NAME PASSWORT | benutzer-anlegen NAME PASSWORT | passwort [NAME [NEUES-PASSWORT]] | liste | sicherung");
 }
 
 if(require.main===module){
-  if(process.argv.length>2){cli(process.argv.slice(2)).catch(e=>{console.error(e.message);process.exit(1);});}
+  if(process.argv.length>2){cli(process.argv.slice(2)).then(()=>process.exit(0)).catch(e=>{console.error(e.message);process.exit(1);});}
   else loadState().then(()=>{
-    http.createServer((req,res)=>{
+    const server=http.createServer((req,res)=>{
       handle(req,res).catch(e=>{if(!e.status)console.error(e);if(!res.headersSent)send(res,e.status||500,{error:e.status?e.message:"Interner Fehler"});});
-    }).listen(PORT,HOST,()=>console.log(`Notizbuch-Server läuft auf ${HOST}:${PORT}, Daten in ${DATA}`));
+    });
+    server.on("error",e=>{
+      if(e.code==="EADDRINUSE")console.error(`\nDer Anschluss (Port) ${PORT} ist schon belegt. Läuft das Notizbuch vielleicht schon in einem anderen Fenster?`);
+      else console.error(e);
+      process.exit(1);
+    });
+    server.listen(PORT,HOST,()=>{
+      console.log(`Notizbuch-Server läuft auf ${HOST}:${PORT}, Daten in ${DATA}`);
+      if(BACKUP)console.log(`Tägliche Sicherung nach ${BACKUP} (die letzten ${BACKUP_KEEP} bleiben erhalten)`);
+      if(HOST==="0.0.0.0"||HOST==="::"){
+        console.log("\nSo öffnest du das Notizbuch:");
+        console.log(`  auf diesem PC:          http://localhost:${PORT}`);
+        for(const a of lanAddresses())console.log(`  im Heimnetz (WLAN):     http://${a}:${PORT}`);
+      }
+      if(!users.length)console.log("\nAchtung: Es gibt noch keinen Benutzer. Bitte zuerst „node server/server.js einrichten“ ausführen.");
+    });
+    startBackups();
     /* Änderungen über die Befehlszeile (z. B. „passwort“) ohne Neustart übernehmen */
     fs.watchFile(USERS,{interval:2000},()=>readJson(USERS,null).then(u=>{if(Array.isArray(u))users=u;}));
   });
 }
-module.exports={handle,loadState};
+module.exports={handle,loadState,backupNow};
